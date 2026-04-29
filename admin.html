@@ -3508,31 +3508,63 @@
         }
 
         function buildPosterStaticGeojson(features) {
+            // Mapbox Static API only accepts hex colours — rgba(...) causes a 400/invalid response.
+            function toHex(val, fallback) {
+                if (typeof val === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(val.trim())) return val.trim();
+                return fallback;
+            }
+
             const baseGeojson = {
                 type: 'FeatureCollection',
                 features: buildRawDisplayFeatures(features).map(feature => {
                     const isSevere = !!feature.properties?.isSevere;
+                    const rawColor = feature.properties?.color || '#cccccc';
+                    // isSevere uses rgba(0,0,0,0) fill — replace with valid hex; opacity stays 0 so it's invisible
+                    const hexFill = isSevere ? '#cccccc' : toHex(rawColor, '#cccccc');
+                    const hexStroke = isSevere ? '#111111' : toHex(rawColor, '#cccccc');
                     return {
                         type: 'Feature',
                         geometry: feature.geometry,
                         properties: {
-                            fill: isSevere ? 'rgba(0,0,0,0)' : feature.properties.color,
+                            fill: hexFill,
                             'fill-opacity': isSevere ? 0 : 0.24,
-                            stroke: isSevere ? '#111111' : feature.properties.color,
+                            stroke: hexStroke,
                             'stroke-width': isSevere ? 4.8 : 4
                         }
                     };
                 })
             };
 
-            const candidates = [baseGeojson];
-            [0.005, 0.01, 0.02, 0.04, 0.08].forEach(tolerance => {
+            let geojsonToProcess = turf.rewind(baseGeojson, { mutate: false });
+
+            // Extended range of simplification tolerances
+            const simplificationTolerances = [0.005, 0.01, 0.02, 0.04, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
+            const candidates = [];
+
+            candidates.push(geojsonToProcess);
+            simplificationTolerances.forEach(tolerance => {
                 try {
-                    candidates.push(turf.simplify(baseGeojson, { tolerance, highPrecision: false }));
+                    // Fixed: was incorrectly referencing undefined `geojson` instead of `geojsonToProcess`
+                    candidates.push(turf.simplify(geojsonToProcess, { tolerance, highQuality: false, mutate: false }));
                 } catch (error) {
                     console.warn('Poster map simplify failed for tolerance', tolerance, error);
                 }
             });
+
+            // As a last-ditch effort, try repairing geometry with buffer(0) and then re-simplifying
+            let bufferedGeojson = null;
+            try {
+                bufferedGeojson = turf.buffer(geojsonToProcess, 0, { units: 'meters' });
+                if (bufferedGeojson) {
+                    candidates.push(bufferedGeojson);
+                    simplificationTolerances.forEach(tolerance => {
+                        try { candidates.push(turf.simplify(bufferedGeojson, { tolerance, highQuality: false, mutate: false })); } catch (error) { console.warn('Admin static map simplify failed after buffer(0) for tolerance', tolerance, error); }
+                    });
+                }
+            } catch (error) { console.warn('Admin static map buffer(0) failed for geometry repair', error); }
+
+            // Sort candidates by serialized length to pick the smallest one that fits
+            candidates.sort((a, b) => JSON.stringify(a).length - JSON.stringify(b).length);
 
             for (const candidate of candidates) {
                 const serialized = JSON.stringify(candidate);

@@ -1190,9 +1190,25 @@
         if (!window.turf) return null;
 
         const displayFeatures = normalizeDisplayFeatures(features);
+        if (!displayFeatures || displayFeatures.length === 0) {
+            return { type: 'FeatureCollection', features: [] }; // Return empty FeatureCollection instead of null
+        }
+
+        // Apply turf.cleanCoords to each feature's geometry to remove redundant points
+        const cleanedFeatures = displayFeatures.map(feature => {
+            try {
+                if (feature.geometry) {
+                    return { ...feature, geometry: turf.cleanCoords(feature.geometry, { mutate: false }) };
+                }
+            } catch (error) {
+                console.warn('Error cleaning coordinates for poster feature:', error);
+            }
+            return feature; // Return original if cleaning fails
+        });
+
         const baseGeojson = {
             type: 'FeatureCollection',
-            features: displayFeatures.map(feature => {
+            features: cleanedFeatures.map(feature => {
                 const isSevere = !!feature.properties?.isSevere;
                 return {
                     type: 'Feature',
@@ -1207,12 +1223,47 @@
             })
         };
 
+        let geojsonToProcess = turf.rewind(baseGeojson, { mutate: false });
+
+        // Extended range of simplification tolerances
+        const simplificationTolerances = [0.005, 0.01, 0.02, 0.04, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
+        const candidates = [];
+
+        // Add original rewound GeoJSON as a candidate
+        candidates.push(geojsonToProcess);
+
+        // Try simplifying the rewound GeoJSON with various tolerances
+        simplificationTolerances.forEach(tolerance => {
+            try {
+                candidates.push(turf.simplify(geojsonToProcess, { tolerance, highQuality: false, mutate: false }));
+            } catch (error) {
+                console.warn('Poster map simplify failed for tolerance', tolerance, error);
+            }
+        });
+
+        // As a last-ditch effort, try repairing geometry with buffer(0) and then re-simplifying
+        let bufferedGeojson = null;
         try {
-            const simplified = turf.simplify(baseGeojson, { tolerance: 0.03, highQuality: false, mutate: false });
-            return simplified || baseGeojson;
-        } catch (error) {
-            return baseGeojson;
+            bufferedGeojson = turf.buffer(geojsonToProcess, 0, { units: 'meters' }); // Buffer by 0 to fix self-intersections
+            if (bufferedGeojson) {
+                candidates.push(bufferedGeojson); // Add buffered as a candidate
+                simplificationTolerances.forEach(tolerance => {
+                    try { candidates.push(turf.simplify(bufferedGeojson, { tolerance, highQuality: false, mutate: false })); } catch (error) { console.warn('Poster map simplify failed after buffer(0) for tolerance', tolerance, error); }
+                });
+            }
+        } catch (error) { console.warn('Poster map buffer(0) failed for geometry repair', error); }
+
+        candidates.sort((a, b) => JSON.stringify(a).length - JSON.stringify(b).length);
+
+        for (const candidate of candidates) {
+            const serialized = JSON.stringify(candidate);
+            if (serialized.length < 7800) {
+                return candidate;
+            }
         }
+
+        // If no simplified version is small enough, return an empty FeatureCollection to trigger vector fallback
+        return { type: 'FeatureCollection', features: [] };
     }
 
     function renderPosterMapVectorFallback(features, width, height) {
