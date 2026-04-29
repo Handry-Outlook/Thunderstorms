@@ -3292,6 +3292,7 @@
             let newerCount = 0;
             let latestImportedEntry = null;
             const duplicateSkippedFiles = [];
+            const noDateFiles = []; // files where no issuance date could be determined
 
             for (const entry of filesWithFeatures) {
                 currentEditingDocId = null;
@@ -3319,8 +3320,13 @@
                     validToInput.value = toLocalInputValue(entry.validWindow.end);
                 }
 
-                // Determine issuance date: manual override input takes highest priority,
-                // then KML-content-detected date, then file last-modified metadata.
+                // Determine issuance date — priority order:
+                //   1. Manual override field (forecaster typed a value)
+                //   2. Date detected from KML XML content (e.g. <atom:updated>, <TimeStamp>)
+                //   3. File last-modified metadata (file.lastModified from the browser)
+                //   4. Nothing — leave null; current system time is NOT used here.
+                //      getDraftIssuedAtValue() applies a current-time fallback only at
+                //      publish/export time, which is intentional and separate from import.
                 const manualInputValue = kmlIssuedOverrideInput.value;
                 const manualDate = manualInputValue ? new Date(manualInputValue) : null;
                 const isManualValid = manualDate && !Number.isNaN(manualDate.getTime());
@@ -3331,12 +3337,16 @@
                 } else if (entry.detectedDate instanceof Date && !Number.isNaN(entry.detectedDate.getTime())) {
                     draftIssuedAtOverride = entry.detectedDate.toISOString();
                     draftIssuedAtSource = entry.detectedDateSource || 'file';
-                    // Sync into the override input so the forecaster can see and edit it
+                    // Sync detected date into the override input so the forecaster can see and adjust it
                     kmlIssuedOverrideInput.value = toLocalInputValue(entry.detectedDate);
                 } else {
-                    draftIssuedAtOverride = new Date().toISOString();
+                    // No date determinable from the KML content or file metadata.
+                    // Leave issuance unset — do NOT fall back to current system time here,
+                    // as that would silently stamp the wrong (import) time onto the record.
+                    draftIssuedAtOverride = null;
                     draftIssuedAtSource = null;
                     kmlIssuedOverrideInput.value = '';
+                    noDateFiles.push(entry.fileName || 'Unknown KML');
                 }
 
                 importedDraftTitle = entry.validWindow?.title || entry.title || '';
@@ -3348,7 +3358,8 @@
                 syncAdminHocoDateToInputs();
                 updateKmlImportMeta();
 
-                const issuedAtForCompare = draftIssuedAtOverride || new Date().toISOString();
+                // Use the detected/overridden issuedAt as-is — null means unknown, not 'now'.
+                const issuedAtForCompare = draftIssuedAtOverride || null;
                 const matchResult = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
                 const kmlSignature = buildKmlEntrySignature(entry);
                 const duplicateMatch = (matchResult?.matches || []).find(match => {
@@ -3401,6 +3412,9 @@
             if (duplicateSkippedFiles.length) {
                 importWarnings.push(`${duplicateSkippedFiles.length} duplicate KML file${duplicateSkippedFiles.length === 1 ? '' : 's'} were skipped.`);
                 window.alert(`Duplicate KML upload skipped for:\n- ${duplicateSkippedFiles.join('\n- ')}`);
+            }
+            if (noDateFiles.length) {
+                importWarnings.push(`${noDateFiles.length} file${noDateFiles.length === 1 ? '' : 's'} had no detectable issuance date — use the Override Issue Time field to set it manually.`);
             }
 
             const successMessage = `Imported ${filesWithFeatures.length} KML file${filesWithFeatures.length === 1 ? '' : 's'} as ${savedCount} separate draft forecast${savedCount === 1 ? '' : 's'} (${newerCount} newer than existing matches).${importWarnings.length ? ` ${importWarnings.join(' ')}` : ''}`;
