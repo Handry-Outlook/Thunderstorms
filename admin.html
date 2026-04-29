@@ -2668,6 +2668,7 @@
         }
 
         function persistDraftLocally() {
+            // Only skip persistence when editing a published (non-draft) forecast from history
             if (currentEditingDocId && !currentEditingData?.isDraft) return;
 
             const snapshot = buildLocalDraftSnapshot();
@@ -2694,11 +2695,11 @@
             importedDraftTitle = snapshot.importedTitle || '';
             importedDraftFiles = Array.isArray(snapshot.importedFiles) ? snapshot.importedFiles : [];
 
-            // Restore the override input value
+            // Restore the override input value and source exactly as persisted
+            draftIssuedAtSource = snapshot.issuedAtSource || null;
             if (draftIssuedAtOverride) {
                 const d = new Date(draftIssuedAtOverride);
                 kmlIssuedOverrideInput.value = Number.isNaN(d.getTime()) ? '' : toLocalInputValue(d);
-                draftIssuedAtSource = snapshot.issuedAtSource || 'file';
             } else {
                 kmlIssuedOverrideInput.value = '';
                 draftIssuedAtSource = null;
@@ -3294,6 +3295,15 @@
             const duplicateSkippedFiles = [];
             const noDateFiles = []; // files where no issuance date could be determined
 
+            // Capture any manual override the forecaster typed BEFORE the import loop begins.
+            // This value is stable for the entire batch — it is not updated mid-loop.
+            // We deliberately read it once here so that auto-detected dates written into
+            // kmlIssuedOverrideInput during a previous iteration are never mistaken for a
+            // forecaster-typed value on the next iteration.
+            const preImportManualValue = kmlIssuedOverrideInput.value;
+            const preImportManualDate = preImportManualValue ? new Date(preImportManualValue) : null;
+            const hasPreImportManualOverride = preImportManualDate && !Number.isNaN(preImportManualDate.getTime());
+
             for (const entry of filesWithFeatures) {
                 currentEditingDocId = null;
                 currentEditingData = null;
@@ -3321,23 +3331,23 @@
                 }
 
                 // Determine issuance date — priority order:
-                //   1. Manual override field (forecaster typed a value)
+                //   1. Manual override typed by the forecaster BEFORE the import started
+                //      (captured once above; mid-loop auto-populated values are intentionally ignored)
                 //   2. Date detected from KML XML content (e.g. <atom:updated>, <TimeStamp>)
-                //   3. File last-modified metadata (file.lastModified from the browser)
+                //   3. File last-modified metadata (file.lastModified from the browser) — this is
+                //      always auto-populated into the override input so the forecaster can review/edit it
                 //   4. Nothing — leave null; current system time is NOT used here.
                 //      getDraftIssuedAtValue() applies a current-time fallback only at
                 //      publish/export time, which is intentional and separate from import.
-                const manualInputValue = kmlIssuedOverrideInput.value;
-                const manualDate = manualInputValue ? new Date(manualInputValue) : null;
-                const isManualValid = manualDate && !Number.isNaN(manualDate.getTime());
-
-                if (isManualValid) {
-                    draftIssuedAtOverride = manualDate.toISOString();
+                if (hasPreImportManualOverride) {
+                    draftIssuedAtOverride = preImportManualDate.toISOString();
                     draftIssuedAtSource = 'manual';
+                    kmlIssuedOverrideInput.value = toLocalInputValue(preImportManualDate);
                 } else if (entry.detectedDate instanceof Date && !Number.isNaN(entry.detectedDate.getTime())) {
                     draftIssuedAtOverride = entry.detectedDate.toISOString();
                     draftIssuedAtSource = entry.detectedDateSource || 'file';
-                    // Sync detected date into the override input so the forecaster can see and adjust it
+                    // Always sync detected date (from KML content or file metadata) into the
+                    // override input so the forecaster can see the auto-detected value and adjust it
                     kmlIssuedOverrideInput.value = toLocalInputValue(entry.detectedDate);
                 } else {
                     // No date determinable from the KML content or file metadata.
