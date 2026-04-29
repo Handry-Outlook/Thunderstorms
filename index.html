@@ -1824,7 +1824,7 @@
                 }, firstSymbol?.id);
             }
 
-            moveUkLightningLayersToTop();
+            enforceLayerOrder();
         }
 
         function setLayerVisibility(layerId, visible) {
@@ -1893,7 +1893,7 @@
                 }, firstSymbol?.id);
             }
 
-            moveUkLightningLayersToTop();
+            enforceLayerOrder();
         }
 
         function clearGuidanceLayer(sourceId, fillId, lineId) {
@@ -2187,12 +2187,32 @@
         }
 
         function moveUkLightningLayersToTop() {
-            if (map.getLayer(UK_LIGHTNING_GLOW_ID)) {
-                map.moveLayer(UK_LIGHTNING_GLOW_ID);
+            enforceLayerOrder();
+        }
+
+        // Enforces strict z-order: satellite → radar → forecast/HOCO → lightning.
+        // Call this any time a layer is added or re-added.
+        // moveLayer(id) with no beforeId = move to absolute top of stack.
+        // moveLayer(id, beforeId) = insert directly below beforeId.
+        function enforceLayerOrder() {
+            // Step 1: satellite sits below radar
+            if (map.getLayer('satellite-layer') && map.getLayer('radar-layer')) {
+                map.moveLayer('satellite-layer', 'radar-layer');
             }
-            if (map.getLayer(UK_LIGHTNING_CORE_ID)) {
-                map.moveLayer(UK_LIGHTNING_CORE_ID);
-            }
+
+            // Step 2: forecast outlines + HOCO guidance above radar, in order
+            const midLayerIds = [
+                'forecast-fill', 'forecast-line', 'forecast-severe-line',
+                HOCO_AUTO_FILL_ID, HOCO_AUTO_LINE_ID,
+                HOCO_ENSEMBLE_FILL_ID, HOCO_ENSEMBLE_LINE_ID,
+            ];
+            midLayerIds.forEach(id => {
+                if (map.getLayer(id)) map.moveLayer(id);
+            });
+
+            // Step 3: lightning always on the very top
+            if (map.getLayer(UK_LIGHTNING_GLOW_ID)) map.moveLayer(UK_LIGHTNING_GLOW_ID);
+            if (map.getLayer(UK_LIGHTNING_CORE_ID)) map.moveLayer(UK_LIGHTNING_CORE_ID);
         }
 
         function removeUkLightningLayers() {
@@ -2568,7 +2588,8 @@
                 paint: { 'raster-opacity': parseFloat(document.getElementById(type + 'Opacity').value) }
             }, beforeId);
 
-            moveUkLightningLayersToTop();
+            // Enforce strict z-order: satellite < radar < HOCO < lightning
+            enforceLayerOrder();
 
             if (type === 'radar') isRadarPlotting = false;
             else isSatellitePlotting = false;

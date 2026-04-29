@@ -646,20 +646,13 @@
             const start = getHocoStartDate(run);
             const end = getHocoEndDate(run);
             if (!start || !end) return null;
-
-            // Match index.html: only require endTime to be around 05:59 (within 15 min
-            // tolerance), rather than an exact hour/minute check that silently drops older
-            // runs saved with slightly different times (05:58, 06:00, etc).
-            const endHour = end.getHours();
-            const endMin  = end.getMinutes();
-            const endTotalMin = endHour * 60 + endMin;
-            const targetEndMin = 5 * 60 + 59; // 05:59
-            if (Math.abs(endTotalMin - targetEndMin) > 15) return null;
+            if (end.getHours() !== 5 || end.getMinutes() !== 59) return null;
 
             const normalizedStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 6, 0, 0, 0);
             const normalizedEnd = new Date(normalizedStart);
             normalizedEnd.setDate(normalizedEnd.getDate() + 1);
             normalizedEnd.setHours(5, 59, 0, 0);
+            if (Math.abs(end.getTime() - normalizedEnd.getTime()) > 60000) return null;
 
             return { start: normalizedStart, end: normalizedEnd, key: formatDateKey(normalizedStart) };
         }
@@ -844,19 +837,11 @@
 
         function getAutoRunsForSelectedWindow() {
             if (!selectedForecastWindow) return [];
-            // Use the forecast window's start date as the match key — same approach as
-            // index.html's getAutoRunsForDay(). This is far more robust than requiring
-            // getNormalizedAutoValidPeriod() to pass all its strict endTime checks, which
-            // silently drops older runs that were saved with slightly different time formats.
-            const targetDay = formatDateKey(selectedForecastWindow.start);
             return hocoRuns
                 .filter(run => run.type === 'automated')
                 .filter(run => {
-                    const startDate = getHocoStartDate(run);
-                    if (startDate && formatDateKey(startDate) === targetDay) return true;
-                    // Fallback for runs without a parseable startTime
                     const normalized = getNormalizedAutoValidPeriod(run);
-                    return normalized && formatDateKey(normalized.start) === targetDay;
+                    return normalized && normalized.key === selectedForecastWindow.key;
                 })
                 .sort((a, b) => (getHocoCreatedDate(a)?.getTime?.() || 0) - (getHocoCreatedDate(b)?.getTime?.() || 0));
         }
@@ -972,8 +957,27 @@
         }
 
         function initHocoRuns() {
-            const runsQuery = query(collection(hocoDb, 'hoco_requests'), orderBy('createdAt', 'desc'), limit(180));
             if (hocoUnsubscribe) hocoUnsubscribe();
+
+            // Query scoped to a ±2-day window around the forecast's valid date so that
+            // older forecasts (beyond a fixed limit) are always found. This mirrors how
+            // index.html queries by date rather than using a blanket limit(180) which
+            // silently excludes runs once the collection grows large enough.
+            const anchor = selectedForecastWindow?.start || forecastValidStart || new Date();
+            const windowStart = new Date(anchor);
+            windowStart.setDate(windowStart.getDate() - 2);
+            windowStart.setHours(0, 0, 0, 0);
+            const windowEnd = new Date(anchor);
+            windowEnd.setDate(windowEnd.getDate() + 2);
+            windowEnd.setHours(23, 59, 59, 999);
+
+            const runsQuery = query(
+                collection(hocoDb, 'hoco_requests'),
+                where('createdAt', '>=', windowStart),
+                where('createdAt', '<=', windowEnd),
+                orderBy('createdAt', 'desc')
+            );
+
             hocoUnsubscribe = onSnapshot(runsQuery, snapshot => {
                 hocoRuns = [];
                 snapshot.forEach(docSnap => {
@@ -1342,30 +1346,12 @@
             const issuedAt = new Date(data.issuedAt || data.validFrom);
             forecastValidStart = Number.isNaN(validFrom.getTime()) ? null : validFrom;
             forecastValidEnd = Number.isNaN(validTo.getTime()) ? null : validTo;
-            // Build the forecast window using UTC date parts so the key matches the
-            // HOCO run startTime strings (which are stored as local/UTC wall-clock dates
-            // like "15/04/2025 06:00"). Using local date parts risks a 1-day offset when
-            // validFrom is a UTC midnight ISO string and the browser is behind UTC.
-            const fwYear  = validFrom.getUTCFullYear();
-            const fwMonth = validFrom.getUTCMonth();
-            const fwDay   = validFrom.getUTCDate();
-            // If validFrom is already in daytime hours UTC (>=06:00) use that date;
-            // if it is midnight UTC it might represent the previous local day, so
-            // fall back to local date parts when UTC and local agree on the same day.
-            const localYear  = validFrom.getFullYear();
-            const localMonth = validFrom.getMonth();
-            const localDay   = validFrom.getDate();
-            // Prefer UTC date but fall back to local if they produce a different result
-            // that matches the forecast title displayed on the page (local display wins).
-            const windowYear  = localYear;
-            const windowMonth = localMonth;
-            const windowDay   = localDay;
             selectedForecastWindow = window.GenWeatherUtils?.getForecastDayWindow
                 ? window.GenWeatherUtils.getForecastDayWindow(validFrom, 0)
                 : {
-                    start: new Date(windowYear, windowMonth, windowDay, 6, 0, 0, 0),
-                    end: new Date(windowYear, windowMonth, windowDay + 1, 5, 59, 59, 999),
-                    key: formatDateKey(new Date(windowYear, windowMonth, windowDay, 6, 0, 0, 0))
+                    start: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0),
+                    end: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate() + 1, 5, 59, 59, 999),
+                    key: formatDateKey(new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0))
                 };
             const forecasterName = data.forecaster
                 || (data.authorEmail ? data.authorEmail.split('@')[0].replace(/[._-]+/g, ' ') : 'Forecast Desk');
