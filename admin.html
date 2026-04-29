@@ -3389,9 +3389,14 @@
                 const newestExistingVersion = matchResult?.newestIssueVersion || 0;
                 const importedIssuedAtMs = new Date(issuedAtForCompare).getTime();
                 const existingIssuedAtMs = newestExistingIssuedAt ? new Date(newestExistingIssuedAt).getTime() : NaN;
+                // importedIsNewer: true only when both timestamps are valid AND imported is strictly newer.
                 const importedIsNewer = !Number.isNaN(importedIssuedAtMs)
                     && (Number.isNaN(existingIssuedAtMs) || importedIssuedAtMs > existingIssuedAtMs);
-                const suggestedVersion = importedIsNewer ? (Math.max(1, newestExistingVersion + 1)) : Math.max(1, newestExistingVersion || 1);
+                // Always assign a version at least one above the current highest in Firebase,
+                // regardless of whether we can compare issuance timestamps. This prevents every
+                // import from landing on v1 when the existing highest version is already v2+.
+                const baseVersion = Math.max(1, newestExistingVersion);
+                const suggestedVersion = matchResult?.hasMatches ? baseVersion + 1 : 1;
 
                 await autoSaveImportedKmlDraftToFirebase({
                     issueVersion: suggestedVersion,
@@ -3455,24 +3460,29 @@
 
             if (!matches.length) return { hasMatches: false, newestIssuedAt: null, newestIssueVersion: 0, matches: [] };
 
-            const newest = matches
+            // Map each doc to its true issuance time and version.
+            // Priority for issuedAt: the explicit issuedAt field (KML forecast issuance timestamp)
+            // then fall back to updatedAt / createdAt (upload time) only when issuedAt is absent.
+            const mapped = matches
                 .map(entry => entry.data)
                 .filter(Boolean)
                 .map(data => ({
-                    issuedAt: data.updatedAt || data.createdAt || null,
+                    issuedAt: data.issuedAt || data.updatedAt || data.createdAt || null,
                     issueVersion: Number(data.issueVersion) || 1
-                }))
-                .sort((a, b) => {
-                    const aTime = new Date(a.issuedAt || 0).getTime();
-                    const bTime = new Date(b.issuedAt || 0).getTime();
-                    if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) return bTime - aTime;
-                    return (b.issueVersion || 0) - (a.issueVersion || 0);
-                })[0];
+                }));
+
+            // Track the latest issuance time and the highest version independently —
+            // they may belong to different docs (e.g. a re-issued older version).
+            const newestByTime = mapped
+                .filter(entry => entry.issuedAt)
+                .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0] || null;
+
+            const highestVersion = mapped.reduce((max, entry) => Math.max(max, entry.issueVersion), 0);
 
             return {
                 hasMatches: true,
-                newestIssuedAt: newest?.issuedAt || null,
-                newestIssueVersion: newest?.issueVersion || 1,
+                newestIssuedAt: newestByTime?.issuedAt || null,
+                newestIssueVersion: highestVersion,
                 matches
             };
         }
@@ -4277,7 +4287,34 @@
             }
 
             const issuedAt = getDraftIssuedAtValue(new Date().toISOString());
-            const issueVersion = getNextIssueVersion();
+
+            // For new forecasts (not editing an existing published doc), query Firebase to find
+            // the highest existing issueVersion for this validity window before assigning one.
+            // getNextIssueVersion() only knows about the currently-loaded doc and always returns
+            // 1 for new draws — it has no visibility into other docs for the same window.
+            let issueVersion;
+            if (currentEditingDocId && !currentEditingData?.isDraft) {
+                // Editing a published forecast: bump its own version by 1 as before.
+                issueVersion = getNextIssueVersion();
+            } else {
+                // New draft or KML-imported draft being published: consult Firebase so we always
+                // land one above the current highest version for this validity window.
+                try {
+                    const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                    const existingHighest = windowMatch?.newestIssueVersion || 0;
+                    if (currentEditingDocId && currentEditingData?.isDraft) {
+                        // Publishing a saved draft: use its own stored version if it's already
+                        // higher than everything else, otherwise bump above the existing highest.
+                        const draftVersion = currentEditingData?.issueVersion || 1;
+                        issueVersion = Math.max(draftVersion, existingHighest + 1 > draftVersion ? existingHighest + 1 : draftVersion);
+                    } else {
+                        issueVersion = windowMatch?.hasMatches ? existingHighest + 1 : 1;
+                    }
+                } catch (err) {
+                    console.warn('Could not query existing forecasts for version check; falling back.', err);
+                    issueVersion = getNextIssueVersion();
+                }
+            }
             const maxRank = Math.max(...draftGeoJSON.features.map(feature => feature.properties.rank || 0));
             let posterArtifact = null;
 
@@ -4365,8 +4402,19 @@
             try {
                 showStatus('Rendering PNG export...', '#1d4ed8');
                 const issuedAt = getDraftIssuedAtValue(new Date().toISOString());
+                // Resolve the correct version against Firebase so the exported PNG filename
+                // and poster stamp match what would actually be published.
+                let exportVersion = getNextIssueVersion();
+                try {
+                    const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                    if (windowMatch?.hasMatches && !(currentEditingDocId && !currentEditingData?.isDraft)) {
+                        exportVersion = (windowMatch.newestIssueVersion || 0) + 1;
+                    }
+                } catch (vErr) {
+                    console.warn('Could not resolve export version from Firebase; using local fallback.', vErr);
+                }
                 const posterArtifact = await renderForecastPoster(draftGeoJSON, {
-                    issueVersion: getNextIssueVersion(),
+                    issueVersion: exportVersion,
                     issuedAt,
                     includeLightning: posterLightningToggle.checked
                 });
