@@ -1225,15 +1225,23 @@
 
         let geojsonToProcess = turf.rewind(baseGeojson, { mutate: false });
 
-        // Extended range of simplification tolerances
-        const simplificationTolerances = [0.005, 0.01, 0.02, 0.04, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
+        // Mapbox Static API hard limit is 8192 chars total.
+        // Poster URLs have higher overhead (~750 chars for custom style + @2x + padding + token),
+        // so we use a tighter encoded budget of 7200 chars.
+        // We check the ENCODED length (post encodeURIComponent) because special characters
+        // like [, ], comma, dot, and minus are each inflated to 3 chars (%XX), meaning
+        // raw JSON length is a poor proxy for the actual URL size.
+        const POSTER_URL_BUDGET = 7200;
+
+        const simplificationTolerances = [0, 0.001, 0.005, 0.01, 0.02, 0.04, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 1.0];
         const candidates = [];
 
-        // Add original rewound GeoJSON as a candidate
+        // Add original rewound GeoJSON as first candidate (tolerance 0 = no simplification)
         candidates.push(geojsonToProcess);
 
         // Try simplifying the rewound GeoJSON with various tolerances
         simplificationTolerances.forEach(tolerance => {
+            if (tolerance === 0) return; // already added above
             try {
                 candidates.push(turf.simplify(geojsonToProcess, { tolerance, highQuality: false, mutate: false }));
             } catch (error) {
@@ -1244,26 +1252,29 @@
         // As a last-ditch effort, try repairing geometry with buffer(0) and then re-simplifying
         let bufferedGeojson = null;
         try {
-            bufferedGeojson = turf.buffer(geojsonToProcess, 0, { units: 'meters' }); // Buffer by 0 to fix self-intersections
+            bufferedGeojson = turf.buffer(geojsonToProcess, 0, { units: 'meters' });
             if (bufferedGeojson) {
-                candidates.push(bufferedGeojson); // Add buffered as a candidate
+                candidates.push(bufferedGeojson);
                 simplificationTolerances.forEach(tolerance => {
+                    if (tolerance === 0) return;
                     try { candidates.push(turf.simplify(bufferedGeojson, { tolerance, highQuality: false, mutate: false })); } catch (error) { console.warn('Poster map simplify failed after buffer(0) for tolerance', tolerance, error); }
                 });
             }
         } catch (error) { console.warn('Poster map buffer(0) failed for geometry repair', error); }
 
-        candidates.sort((a, b) => JSON.stringify(a).length - JSON.stringify(b).length);
+        // Sort by encoded length ascending so we try the smallest valid candidate first
+        candidates.sort((a, b) => encodeURIComponent(JSON.stringify(a)).length - encodeURIComponent(JSON.stringify(b)).length);
 
         for (const candidate of candidates) {
-            const serialized = JSON.stringify(candidate);
-            if (serialized.length < 7800) {
+            // Check the ENCODED length -- this is what actually goes into the URL
+            if (encodeURIComponent(JSON.stringify(candidate)).length <= POSTER_URL_BUDGET) {
                 return candidate;
             }
         }
 
-        // If no simplified version is small enough, return an empty FeatureCollection to trigger vector fallback
-        return { type: 'FeatureCollection', features: [] };
+        // Nothing fit -- return null to trigger vector fallback in renderPosterMapImage
+        console.warn('Poster static map: GeoJSON too large even at maximum simplification, falling back to vector render.');
+        return null;
     }
 
     function renderPosterMapVectorFallback(features, width, height) {

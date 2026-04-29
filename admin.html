@@ -718,6 +718,71 @@
             gap: 14px;
         }
 
+        .kml-issuance-override-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .kml-issuance-override-row input[type="datetime-local"] {
+            border-radius: 14px;
+        }
+
+        .btn-kml-override-clear {
+            padding: 12px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            background: #fff;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .btn-kml-override-clear:hover {
+            background: #fee2e2;
+            color: #b91c1c;
+            border-color: rgba(185,28,28,0.3);
+        }
+
+        .kml-meta-card.has-detected-date {
+            border-color: #86efac;
+            background: #f0fdf4;
+        }
+
+        .kml-meta-card.has-manual-override {
+            border-color: #93c5fd;
+            background: #eff6ff;
+        }
+
+        .kml-date-source-badge {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .kml-date-source-badge.source-kml {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .kml-date-source-badge.source-file {
+            background: #fef9c3;
+            color: #854d0e;
+        }
+
+        .kml-date-source-badge.source-manual {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
         .kml-import-actions {
             display: flex;
             align-items: center;
@@ -1097,14 +1162,23 @@
                         <div class="section-note" id="kml-import-status">Batch KML import reads placemark names as risk
                             levels and saves the result as a local draft.</div>
                     </div>
+                    <div>
+                        <label for="kml-issued-override">Override Issue / Update Time</label>
+                        <div class="kml-issuance-override-row">
+                            <input type="datetime-local" id="kml-issued-override" title="Manually set the issuance or last-updated time for this KML draft">
+                            <button type="button" class="btn-kml-override-clear" id="kml-override-clear-btn" title="Clear override and revert to auto-detected time"><i class="fas fa-xmark"></i> Clear</button>
+                        </div>
+                        <div class="section-note" style="margin-top:6px;">Leave blank to use the auto-detected date from the KML content or file metadata. Setting a value here overrides both.</div>
+                    </div>
                     <div class="kml-meta-grid">
                         <div class="kml-meta-card">
                             <div class="kml-meta-label">Draft Validity</div>
                             <div class="kml-meta-value" id="kml-validity-meta">--</div>
                         </div>
-                        <div class="kml-meta-card">
+                        <div class="kml-meta-card" id="kml-issued-meta-card">
                             <div class="kml-meta-label">Draft Issuance</div>
                             <div class="kml-meta-value" id="kml-issued-meta">--</div>
+                            <div id="kml-issued-source-badge"></div>
                         </div>
                         <div class="kml-meta-card">
                             <div class="kml-meta-label">Imported Title</div>
@@ -1437,6 +1511,10 @@
         const kmlImportStatus = document.getElementById('kml-import-status');
         const kmlValidityMeta = document.getElementById('kml-validity-meta');
         const kmlIssuedMeta = document.getElementById('kml-issued-meta');
+        const kmlIssuedMetaCard = document.getElementById('kml-issued-meta-card');
+        const kmlIssuedSourceBadge = document.getElementById('kml-issued-source-badge');
+        const kmlIssuedOverrideInput = document.getElementById('kml-issued-override');
+        const kmlOverrideClearBtn = document.getElementById('kml-override-clear-btn');
         const kmlTitleMeta = document.getElementById('kml-title-meta');
         const kmlFilesMeta = document.getElementById('kml-files-meta');
         const validFromInput = document.getElementById('valid-from');
@@ -1490,6 +1568,7 @@
         let posterUkLightningStrikes = [];
         let posterUkLightningLastUpdate = null;
         let draftIssuedAtOverride = null;
+        let draftIssuedAtSource = null; // 'kml' | 'file' | 'manual' | null
         let importedDraftTitle = '';
         let importedDraftFiles = [];
         let pendingLocalDraftRestore = false;
@@ -1708,7 +1787,42 @@
 
         function updateKmlImportMeta() {
             kmlValidityMeta.textContent = formatDraftMetaWindow();
-            kmlIssuedMeta.textContent = draftIssuedAtOverride ? formatDraftMetaDate(draftIssuedAtOverride) : '--';
+
+            // Determine effective issuance: manual override input takes highest priority
+            const manualInputValue = kmlIssuedOverrideInput.value;
+            let effectiveIssuedAt = draftIssuedAtOverride;
+            let effectiveSource = draftIssuedAtSource;
+
+            if (manualInputValue) {
+                const manualDate = new Date(manualInputValue);
+                if (!Number.isNaN(manualDate.getTime())) {
+                    effectiveIssuedAt = manualDate.toISOString();
+                    effectiveSource = 'manual';
+                    // Keep draftIssuedAtOverride in sync
+                    draftIssuedAtOverride = effectiveIssuedAt;
+                }
+            }
+
+            if (effectiveIssuedAt) {
+                kmlIssuedMeta.textContent = formatDraftMetaDate(effectiveIssuedAt);
+            } else {
+                kmlIssuedMeta.textContent = '--';
+            }
+
+            // Source badge
+            kmlIssuedSourceBadge.innerHTML = '';
+            kmlIssuedMetaCard.classList.remove('has-detected-date', 'has-manual-override');
+            if (effectiveSource === 'manual') {
+                kmlIssuedMetaCard.classList.add('has-manual-override');
+                kmlIssuedSourceBadge.innerHTML = '<span class="kml-date-source-badge source-manual"><i class="fas fa-pen"></i> Manual override</span>';
+            } else if (effectiveSource === 'kml') {
+                kmlIssuedMetaCard.classList.add('has-detected-date');
+                kmlIssuedSourceBadge.innerHTML = '<span class="kml-date-source-badge source-kml"><i class="fas fa-file-code"></i> From KML content</span>';
+            } else if (effectiveSource === 'file') {
+                kmlIssuedMetaCard.classList.add('has-detected-date');
+                kmlIssuedSourceBadge.innerHTML = '<span class="kml-date-source-badge source-file"><i class="fas fa-clock"></i> From file metadata</span>';
+            }
+
             kmlTitleMeta.textContent = importedDraftTitle || 'No KML draft loaded.';
             kmlFilesMeta.textContent = importedDraftFiles.length
                 ? `${importedDraftFiles.length} file${importedDraftFiles.length === 1 ? '' : 's'}: ${importedDraftFiles.join(', ')}`
@@ -1717,8 +1831,10 @@
 
         function clearImportedDraftMetadata() {
             draftIssuedAtOverride = null;
+            draftIssuedAtSource = null;
             importedDraftTitle = '';
             importedDraftFiles = [];
+            kmlIssuedOverrideInput.value = '';
             updateKmlImportMeta();
             setKmlImportStatus();
         }
@@ -1757,6 +1873,66 @@
             }
             matches.push(...Array.from(root.getElementsByTagName('*')).filter(node => node.localName === localName));
             return matches;
+        }
+
+        /**
+         * Attempt to extract an issuance/updated date from KML XML content.
+         * Checks (in priority order):
+         *   1. <atom:updated> or <updated> — RFC3339/ISO date used by GE/KML exports
+         *   2. <TimeStamp><when> on the Document or first Placemark
+         *   3. <description> text — looks for a date pattern in the text content
+         * Returns { date: Date, source: 'kml' } or null.
+         */
+        function extractKmlIssuanceDate(xml) {
+            // 1. atom:updated / updated element anywhere near the Document root
+            const updatedCandidates = [
+                ...getElementsByLocalName(xml, 'updated'),
+                ...getElementsByLocalName(xml, 'lastUpdated'),
+                ...getElementsByLocalName(xml, 'modified')
+            ];
+            for (const node of updatedCandidates) {
+                const text = node.textContent?.trim();
+                if (text) {
+                    const date = new Date(text);
+                    if (!Number.isNaN(date.getTime())) return { date, source: 'kml' };
+                }
+            }
+
+            // 2. TimeStamp/when on Document, Folder, or first Placemark
+            const timeStampNodes = getElementsByLocalName(xml, 'TimeStamp');
+            for (const tsNode of timeStampNodes) {
+                const whenNode = getElementsByLocalName(tsNode, 'when')[0];
+                const text = whenNode?.textContent?.trim();
+                if (text) {
+                    const date = new Date(text);
+                    if (!Number.isNaN(date.getTime())) return { date, source: 'kml' };
+                }
+            }
+
+            // 3. TimeInterval/begin (valid-from timestamp, less precise but still useful)
+            const timeIntervalNodes = getElementsByLocalName(xml, 'TimeSpan');
+            for (const tsNode of timeIntervalNodes) {
+                const beginNode = getElementsByLocalName(tsNode, 'begin')[0];
+                const text = beginNode?.textContent?.trim();
+                if (text) {
+                    const date = new Date(text);
+                    if (!Number.isNaN(date.getTime())) return { date, source: 'kml' };
+                }
+            }
+
+            // 4. Scan description text for an ISO/RFC date pattern like "Issued: 2024-05-01T12:00Z"
+            const descriptionNodes = getElementsByLocalName(xml, 'description');
+            const isoDatePattern = /(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)/g;
+            for (const node of descriptionNodes) {
+                const text = node.textContent || '';
+                let match;
+                while ((match = isoDatePattern.exec(text)) !== null) {
+                    const date = new Date(match[1].replace(' ', 'T'));
+                    if (!Number.isNaN(date.getTime())) return { date, source: 'kml' };
+                }
+            }
+
+            return null;
         }
 
         function getDirectChildText(parent, localName) {
@@ -1860,11 +2036,27 @@
                 });
             });
 
+            // Try to detect issuance date from KML content first, then fall back to file metadata
+            const kmlDateResult = extractKmlIssuanceDate(xml);
+            let detectedDate = null;
+            let detectedDateSource = null;
+
+            if (kmlDateResult) {
+                detectedDate = kmlDateResult.date;
+                detectedDateSource = kmlDateResult.source; // 'kml'
+            } else if (file.lastModified) {
+                detectedDate = new Date(file.lastModified);
+                detectedDateSource = 'file';
+            }
+
             return {
                 fileName: file.name,
                 title,
                 validWindow,
                 features,
+                detectedDate,
+                detectedDateSource,
+                // Keep lastModified for backwards-compat with buildKmlEntrySignature
                 lastModified: file.lastModified ? new Date(file.lastModified) : null
             };
         }
@@ -2449,6 +2641,7 @@
                 description: forecastText.value || '',
                 geoJSON: createDraftGeoJSON(),
                 issuedAtOverride: draftIssuedAtOverride || null,
+                issuedAtSource: draftIssuedAtSource || null,
                 importedTitle: importedDraftTitle || '',
                 importedFiles: importedDraftFiles.slice(),
                 savedAt: new Date().toISOString()
@@ -2500,6 +2693,16 @@
             draftIssuedAtOverride = snapshot.issuedAtOverride || null;
             importedDraftTitle = snapshot.importedTitle || '';
             importedDraftFiles = Array.isArray(snapshot.importedFiles) ? snapshot.importedFiles : [];
+
+            // Restore the override input value
+            if (draftIssuedAtOverride) {
+                const d = new Date(draftIssuedAtOverride);
+                kmlIssuedOverrideInput.value = Number.isNaN(d.getTime()) ? '' : toLocalInputValue(d);
+                draftIssuedAtSource = snapshot.issuedAtSource || 'file';
+            } else {
+                kmlIssuedOverrideInput.value = '';
+                draftIssuedAtSource = null;
+            }
 
             draw.deleteAll();
             const geoJSON = typeof snapshot.geoJSON === 'string' ? JSON.parse(snapshot.geoJSON) : snapshot.geoJSON;
@@ -3116,9 +3319,26 @@
                     validToInput.value = toLocalInputValue(entry.validWindow.end);
                 }
 
-                draftIssuedAtOverride = entry.lastModified instanceof Date && !Number.isNaN(entry.lastModified.getTime())
-                    ? entry.lastModified.toISOString()
-                    : new Date().toISOString();
+                // Determine issuance date: manual override input takes highest priority,
+                // then KML-content-detected date, then file last-modified metadata.
+                const manualInputValue = kmlIssuedOverrideInput.value;
+                const manualDate = manualInputValue ? new Date(manualInputValue) : null;
+                const isManualValid = manualDate && !Number.isNaN(manualDate.getTime());
+
+                if (isManualValid) {
+                    draftIssuedAtOverride = manualDate.toISOString();
+                    draftIssuedAtSource = 'manual';
+                } else if (entry.detectedDate instanceof Date && !Number.isNaN(entry.detectedDate.getTime())) {
+                    draftIssuedAtOverride = entry.detectedDate.toISOString();
+                    draftIssuedAtSource = entry.detectedDateSource || 'file';
+                    // Sync into the override input so the forecaster can see and edit it
+                    kmlIssuedOverrideInput.value = toLocalInputValue(entry.detectedDate);
+                } else {
+                    draftIssuedAtOverride = new Date().toISOString();
+                    draftIssuedAtSource = null;
+                    kmlIssuedOverrideInput.value = '';
+                }
+
                 importedDraftTitle = entry.validWindow?.title || entry.title || '';
                 importedDraftFiles = [entry.fileName];
 
@@ -3507,6 +3727,7 @@
             return { bounds, hasBounds };
         }
 
+
         function buildPosterStaticGeojson(features) {
             // Mapbox Static API only accepts hex colours — rgba(...) causes a 400/invalid response.
             function toHex(val, fallback) {
@@ -3514,67 +3735,94 @@
                 return fallback;
             }
 
-            const baseGeojson = {
-                type: 'FeatureCollection',
-                features: buildRawDisplayFeatures(features).map(feature => {
-                    const isSevere = !!feature.properties?.isSevere;
-                    const rawColor = feature.properties?.color || '#cccccc';
-                    // isSevere uses rgba(0,0,0,0) fill — replace with valid hex; opacity stays 0 so it's invisible
-                    const hexFill = isSevere ? '#cccccc' : toHex(rawColor, '#cccccc');
-                    const hexStroke = isSevere ? '#111111' : toHex(rawColor, '#cccccc');
-                    return {
-                        type: 'Feature',
-                        geometry: feature.geometry,
-                        properties: {
-                            fill: hexFill,
-                            'fill-opacity': isSevere ? 0 : 0.24,
-                            stroke: hexStroke,
-                            'stroke-width': isSevere ? 4.8 : 4
-                        }
-                    };
-                })
-            };
-
-            let geojsonToProcess = turf.rewind(baseGeojson, { mutate: false });
-
-            // Extended range of simplification tolerances
-            const simplificationTolerances = [0.005, 0.01, 0.02, 0.04, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
-            const candidates = [];
-
-            candidates.push(geojsonToProcess);
-            simplificationTolerances.forEach(tolerance => {
-                try {
-                    // Fixed: was incorrectly referencing undefined `geojson` instead of `geojsonToProcess`
-                    candidates.push(turf.simplify(geojsonToProcess, { tolerance, highQuality: false, mutate: false }));
-                } catch (error) {
-                    console.warn('Poster map simplify failed for tolerance', tolerance, error);
-                }
-            });
-
-            // As a last-ditch effort, try repairing geometry with buffer(0) and then re-simplifying
-            let bufferedGeojson = null;
-            try {
-                bufferedGeojson = turf.buffer(geojsonToProcess, 0, { units: 'meters' });
-                if (bufferedGeojson) {
-                    candidates.push(bufferedGeojson);
-                    simplificationTolerances.forEach(tolerance => {
-                        try { candidates.push(turf.simplify(bufferedGeojson, { tolerance, highQuality: false, mutate: false })); } catch (error) { console.warn('Admin static map simplify failed after buffer(0) for tolerance', tolerance, error); }
-                    });
-                }
-            } catch (error) { console.warn('Admin static map buffer(0) failed for geometry repair', error); }
-
-            // Sort candidates by serialized length to pick the smallest one that fits
-            candidates.sort((a, b) => JSON.stringify(a).length - JSON.stringify(b).length);
-
-            for (const candidate of candidates) {
-                const serialized = JSON.stringify(candidate);
-                if (serialized.length < 7800) {
-                    return candidate;
+            // Reduce coordinate decimal precision without changing topology.
+            // 6dp = ~11cm, 5dp = ~1m, 4dp = ~11m, 3dp = ~111m — all fine for a thumbnail.
+            function truncateCoords(geometry, dp) {
+                if (!geometry) return geometry;
+                function rc(c) { return [+c[0].toFixed(dp), +c[1].toFixed(dp)]; }
+                function rr(ring) { return ring.map(rc); }
+                function rp(coords) { return coords.map(rr); }
+                switch (geometry.type) {
+                    case 'Polygon':         return { ...geometry, coordinates: rp(geometry.coordinates) };
+                    case 'MultiPolygon':    return { ...geometry, coordinates: geometry.coordinates.map(rp) };
+                    case 'LineString':      return { ...geometry, coordinates: geometry.coordinates.map(rc) };
+                    case 'MultiLineString': return { ...geometry, coordinates: geometry.coordinates.map(rr) };
+                    case 'Point':           return { ...geometry, coordinates: rc(geometry.coordinates) };
+                    default:                return geometry;
                 }
             }
 
+            const rawFeatures = buildRawDisplayFeatures(features).map(feature => {
+                const isSevere  = !!feature.properties?.isSevere;
+                const rawColor  = feature.properties?.color || '#cccccc';
+                const hexFill   = isSevere ? '#cccccc' : toHex(rawColor, '#cccccc');
+                const hexStroke = isSevere ? '#111111' : toHex(rawColor, '#cccccc');
+                return {
+                    type: 'Feature',
+                    geometry: feature.geometry,
+                    properties: {
+                        fill:           hexFill,
+                        'fill-opacity': isSevere ? 0 : 0.24,
+                        stroke:         hexStroke,
+                        'stroke-width': isSevere ? 4.8 : 4
+                    }
+                };
+            });
+
+            // Mapbox Static API hard limit is 8192 chars total.
+            // Poster URLs have higher overhead than archive/forecasts (~750 chars for custom
+            // style + @2x + padding + token), so we use a tighter encoded budget of 7200 chars.
+            // We check the ENCODED length (post encodeURIComponent) because special characters
+            // like [, ], comma, dot, and minus are each inflated to 3 chars (%XX), meaning
+            // raw JSON length is a poor proxy for the actual URL size.
+            const POSTER_URL_BUDGET = 7200;
+
+            // Try progressively more aggressive simplification + precision combinations.
+            // tolerance is in degrees (~0.001° ≈ 111m). highQuality:false uses the faster
+            // Radial Distance algorithm which is sufficient for poster thumbnail rendering.
+            const attempts = [
+                { tolerance: 0,     dp: 5 },
+                { tolerance: 0,     dp: 4 },
+                { tolerance: 0,     dp: 3 },
+                { tolerance: 0.001, dp: 4 },
+                { tolerance: 0.005, dp: 3 },
+                { tolerance: 0.01,  dp: 3 },
+                { tolerance: 0.05,  dp: 2 },
+                { tolerance: 0.1,   dp: 2 },
+                { tolerance: 0.25,  dp: 2 },
+                { tolerance: 0.5,   dp: 1 },
+                { tolerance: 1.0,   dp: 1 },
+            ];
+
+            for (const { tolerance, dp } of attempts) {
+                try {
+                    const processedFeatures = rawFeatures.map(f => {
+                        let geom = f.geometry;
+                        if (tolerance > 0 && (geom?.type === 'Polygon' || geom?.type === 'MultiPolygon')) {
+                            try {
+                                const simplified = turf.simplify(
+                                    { type: 'Feature', geometry: geom, properties: {} },
+                                    { tolerance, highQuality: false, mutate: false }
+                                );
+                                geom = simplified.geometry;
+                            } catch (_) {}
+                        }
+                        return { ...f, geometry: truncateCoords(geom, dp) };
+                    });
+
+                    const fc = { type: 'FeatureCollection', features: processedFeatures };
+                    // Check encoded length — this is what actually goes into the URL
+                    if (encodeURIComponent(JSON.stringify(fc)).length <= POSTER_URL_BUDGET) {
+                        return fc; // caller does its own JSON.stringify + encodeURIComponent
+                    }
+                } catch (_) {}
+            }
+
+            // Nothing fit — return null so the caller falls back to the vector poster renderer
+            console.warn('Poster static map: GeoJSON too large even at maximum simplification, falling back to vector render.');
             return null;
         }
+
 
         function getPosterMercatorY(lat) {
             const safeLat = Math.max(-85, Math.min(85, Number(lat) || 0));
@@ -4326,6 +4574,33 @@
         adminHocoDateInput.addEventListener('change', () => {
             setAdminHocoWindow(getWindowFromDateValue(adminHocoDateInput.value));
             refreshAdminHocoForSelectedDay();
+        });
+
+        // KML issuance manual override: update the draft immediately when changed
+        kmlIssuedOverrideInput.addEventListener('change', () => {
+            const manualDate = kmlIssuedOverrideInput.value ? new Date(kmlIssuedOverrideInput.value) : null;
+            if (manualDate && !Number.isNaN(manualDate.getTime())) {
+                draftIssuedAtOverride = manualDate.toISOString();
+                draftIssuedAtSource = 'manual';
+            } else {
+                // If cleared, keep the previously auto-detected value if available
+                if (!kmlIssuedOverrideInput.value) {
+                    // Will be re-populated on next import; set to null until then
+                    draftIssuedAtOverride = null;
+                    draftIssuedAtSource = null;
+                }
+            }
+            updateKmlImportMeta();
+            persistDraftLocally();
+        });
+
+        kmlOverrideClearBtn.addEventListener('click', () => {
+            kmlIssuedOverrideInput.value = '';
+            draftIssuedAtOverride = null;
+            draftIssuedAtSource = null;
+            updateKmlImportMeta();
+            persistDraftLocally();
+            showStatus('Issuance override cleared.', '#475569');
         });
 
         // ─── FIX 7: Slider input triggers the auto-run plot directly ─────────────

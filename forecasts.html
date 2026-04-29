@@ -304,58 +304,50 @@
         const db = getFirestore(app);
         const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGFuZHJ5MjAxOTEwMjYiLCJhIjoiY21jYWg2eG1lMDNkYTJxczVyOWM5bW9mciJ9.bA-qxiByTB_RseY1fgU4rg';
 
-        // Max chars for the GeoJSON *before* URL-encoding.
-        // Mapbox Static API limit is ~8192 chars for the full URL.
-        // The non-GeoJSON URL parts (style, /static/geojson()/, /auto/300x200, padding, token) use ~650 chars.
-        // URL-encoding can expand the GeoJSON by up to ~3x in the worst case, but typical GeoJSON
-        // (mostly digits, commas, brackets) encodes to ~1.05x. We conservatively budget 4500 raw chars
-        // so the encoded GeoJSON stays well under 7500, keeping total URL safely under 8192.
-        const GEOJSON_RAW_CHAR_BUDGET = 4500;
+        // ─── Static preview GeoJSON builder ──────────────────────────────────────────
+        // Strategy: reduce coordinate decimal precision (no topology simplification).
+        // 6dp = ~11cm, 5dp = ~1m, 4dp = ~11m, 3dp = ~111m — all fine for a thumbnail.
+        // The Mapbox Static API URL limit is ~8192 chars total; non-GeoJSON overhead
+        // is ~650 chars, so we target a raw GeoJSON budget of 7000 chars.
+        const STATIC_GEOJSON_BUDGET = 7000;
 
-        function buildBboxFallbackGeojson(features) {
-            // When the geometry is too complex even after all simplifications,
-            // render a single bounding-box rectangle to at least show the region.
-            try {
-                const fc = { type: 'FeatureCollection', features };
-                const bbox = turf.bbox(fc); // [minLng, minLat, maxLng, maxLat]
-                const fill = features[0]?.properties?.fill || features[0]?.properties?.color || '#cccccc';
-                const bboxPoly = turf.bboxPolygon(bbox);
-                bboxPoly.properties = { fill, 'fill-opacity': 0.5, stroke: fill, 'stroke-width': 2 };
-                return encodeURIComponent(JSON.stringify({ type: 'FeatureCollection', features: [bboxPoly] }));
-            } catch (e) {
-                // Absolute last resort: empty collection (Mapbox will show a plain map tile)
-                return encodeURIComponent(JSON.stringify({ type: 'FeatureCollection', features: [] }));
+        function toHex(val, fallback) {
+            if (typeof val === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(val.trim())) return val.trim();
+            return fallback;
+        }
+
+        function truncateCoords(geometry, dp) {
+            if (!geometry) return geometry;
+            function rc(c) { return [+c[0].toFixed(dp), +c[1].toFixed(dp)]; }
+            function rr(ring) { return ring.map(rc); }
+            function rp(coords) { return coords.map(rr); }
+            switch (geometry.type) {
+                case 'Polygon': return { ...geometry, coordinates: rp(geometry.coordinates) };
+                case 'MultiPolygon': return { ...geometry, coordinates: geometry.coordinates.map(rp) };
+                case 'LineString': return { ...geometry, coordinates: geometry.coordinates.map(rc) };
+                case 'MultiLineString': return { ...geometry, coordinates: geometry.coordinates.map(rr) };
+                case 'Point': return { ...geometry, coordinates: rc(geometry.coordinates) };
+                default: return geometry;
             }
         }
 
-        function buildArchiveStaticPreviewGeojson(features) {
+        const STATIC_URL_BUDGET = 7900;
+
+        function buildStaticPreviewGeojson(features) {
             if (!features || features.length === 0) {
                 return encodeURIComponent(JSON.stringify({ type: 'FeatureCollection', features: [] }));
             }
 
-            // Mapbox Static API only accepts hex colours — rgba(...) causes a 400/invalid response.
-            // Sanitize any non-hex fill/stroke to a safe hex value.
-            function toHex(val, fallback) {
-                if (typeof val === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(val.trim())) return val.trim();
-                return fallback;
-            }
-
-            // Strip all non-essential properties — keep only style-related ones
-            const minimalFeatures = (features || []).map(feature => {
+            const minimalFeatures = features.map(feature => {
                 try {
-                    const cleaned = feature.geometry
-                        ? { ...feature, geometry: turf.cleanCoords(feature.geometry, { mutate: false }) }
-                        : feature;
                     const rawFill = feature.properties?.fill;
                     const rawStroke = feature.properties?.stroke || rawFill;
                     const fillOpacity = feature.properties?.['fill-opacity'] ?? 0.6;
-                    // isSevere features use rgba(0,0,0,0) fill — treat as outline-only:
-                    // keep opacity 0 but provide a valid hex so Mapbox doesn't error.
                     const hexFill = toHex(rawFill, '#cccccc');
                     const hexStroke = toHex(rawStroke, hexFill);
                     return {
                         type: 'Feature',
-                        geometry: cleaned.geometry,
+                        geometry: feature.geometry,
                         properties: {
                             fill: hexFill,
                             'fill-opacity': typeof fillOpacity === 'number' ? fillOpacity : 0.6,
@@ -364,41 +356,61 @@
                         }
                     };
                 } catch (e) {
-                    return { type: 'Feature', geometry: feature.geometry, properties: { fill: '#cccccc', 'fill-opacity': 0.6, stroke: '#cccccc', 'stroke-width': 2 } };
+                    return {
+                        type: 'Feature', geometry: feature.geometry,
+                        properties: { fill: '#cccccc', 'fill-opacity': 0.6, stroke: '#cccccc', 'stroke-width': 2 }
+                    };
                 }
             });
 
-            let baseGeojson;
-            try {
-                baseGeojson = turf.rewind({ type: 'FeatureCollection', features: minimalFeatures }, { mutate: false });
-            } catch (e) {
-                baseGeojson = { type: 'FeatureCollection', features: minimalFeatures };
-            }
+            const attempts = [
+                { tolerance: 0, dp: 5 },
+                { tolerance: 0, dp: 4 },
+                { tolerance: 0, dp: 3 },
+                { tolerance: 0.001, dp: 4 },
+                { tolerance: 0.005, dp: 3 },
+                { tolerance: 0.01, dp: 3 },
+                { tolerance: 0.05, dp: 2 },
+                { tolerance: 0.1, dp: 2 },
+                { tolerance: 0.25, dp: 2 },
+                { tolerance: 0.5, dp: 1 },
+                { tolerance: 1.0, dp: 1 },
+            ];
 
-            // Tolerances go much higher than before to guarantee we hit budget on dense forecasts
-            const tolerances = [0.005, 0.01, 0.02, 0.04, 0.08, 0.15, 0.25, 0.5, 1.0, 2.0];
-
-            // Try original first (may already be small enough)
-            if (JSON.stringify(baseGeojson).length < GEOJSON_RAW_CHAR_BUDGET) {
-                return encodeURIComponent(JSON.stringify(baseGeojson));
-            }
-
-            // Work through tolerances in ascending order — return first one that fits
-            for (const tolerance of tolerances) {
+            for (const { tolerance, dp } of attempts) {
                 try {
-                    const simplified = turf.simplify(baseGeojson, { tolerance, highQuality: false, mutate: false });
-                    if (JSON.stringify(simplified).length < GEOJSON_RAW_CHAR_BUDGET) {
-                        return encodeURIComponent(JSON.stringify(simplified));
+                    const processedFeatures = minimalFeatures.map(f => {
+                        let geom = f.geometry;
+                        if (geom?.type === 'Polygon' || geom?.type === 'MultiPolygon') {
+                            try {
+                                if (tolerance > 0) {
+                                    const simplified = turf.simplify(
+                                        { type: 'Feature', geometry: geom, properties: {} },
+                                        { tolerance, highQuality: false, mutate: false }
+                                    );
+                                    geom = simplified.geometry;
+                                }
+                            } catch (_) { }
+                        }
+                        return { ...f, geometry: truncateCoords(geom, dp) };
+                    });
+
+                    const encoded = encodeURIComponent(JSON.stringify({
+                        type: 'FeatureCollection',
+                        features: processedFeatures
+                    }));
+
+                    if (encoded.length <= STATIC_URL_BUDGET) {
+                        return encoded;
                     }
-                } catch (e) {
-                    console.warn('Forecasts static map simplify failed for tolerance', tolerance, e);
-                }
+                } catch (_) { }
             }
 
-            // Still too big — fall back to bounding box rectangle
-            console.warn('Forecasts static map: GeoJSON too complex, falling back to bounding box preview.');
-            return buildBboxFallbackGeojson(minimalFeatures);
+            // If somehow nothing fits, return empty rather than a broken URL
+            console.warn('Static preview: could not fit GeoJSON within URL budget even at maximum simplification.');
+            return encodeURIComponent(JSON.stringify({ type: 'FeatureCollection', features: [] }));
         }
+
 
         async function loadFutureForecasts() {
             const listContainer = document.getElementById('archive-list');
@@ -456,7 +468,7 @@
                     const badgeColor = highestRisk ? highestRisk.color : (hasSevere ? '#111111' : '#94a3b8');
                     const badgeTextColor = highestRisk?.rank === 2 ? '#172033' : '#ffffff';
 
-                    const encodedGeo = buildArchiveStaticPreviewGeojson(geoJSON.features);
+                    const encodedGeo = buildStaticPreviewGeojson(geoJSON.features);
                     const staticMapUrl = `https://api.mapbox.com/styles/v1/handry20191026/cmd7aol1800u401s9g60ibz29/static/geojson(${encodedGeo})/auto/300x200?padding=20&access_token=${MAPBOX_TOKEN}`;
                     const previewUrl = data.posterUrl || staticMapUrl;
                     const previewClass = data.posterUrl ? 'map-thumb poster-thumb' : 'map-thumb';
@@ -464,7 +476,7 @@
 
                     const posterAction = data.posterUrl
                         ? `<a href="${data.posterUrl}" target="_blank" rel="noopener" class="poster-link"><i class="fas fa-image"></i> Poster PNG</a>`
-                        : `<span class="poster-pending">Poster PNG not synced yet</span>`;
+                        : `<span class="poster-pending"></span>`;
 
                     const card = `
                         <article class="archive-card">
