@@ -646,13 +646,20 @@
             const start = getHocoStartDate(run);
             const end = getHocoEndDate(run);
             if (!start || !end) return null;
-            if (end.getHours() !== 5 || end.getMinutes() !== 59) return null;
+
+            // Match index.html: only require endTime to be around 05:59 (within 15 min
+            // tolerance), rather than an exact hour/minute check that silently drops older
+            // runs saved with slightly different times (05:58, 06:00, etc).
+            const endHour = end.getHours();
+            const endMin  = end.getMinutes();
+            const endTotalMin = endHour * 60 + endMin;
+            const targetEndMin = 5 * 60 + 59; // 05:59
+            if (Math.abs(endTotalMin - targetEndMin) > 15) return null;
 
             const normalizedStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 6, 0, 0, 0);
             const normalizedEnd = new Date(normalizedStart);
             normalizedEnd.setDate(normalizedEnd.getDate() + 1);
             normalizedEnd.setHours(5, 59, 0, 0);
-            if (Math.abs(end.getTime() - normalizedEnd.getTime()) > 60000) return null;
 
             return { start: normalizedStart, end: normalizedEnd, key: formatDateKey(normalizedStart) };
         }
@@ -733,59 +740,35 @@
                     geojsonData = await fallback.json();
                 }
 
-            // ── 3. Firebase / GCS Storage URL — re-generate a fresh download URL ────
-            //    Stored URLs are signed tokens that expire after ~1 week. We extract
-            //    the storage object path and call getDownloadURL() to get a fresh URL.
-            //    Falls back to fetching the original URL if path extraction fails, and
-            //    tries the legacy appspot bucket if the primary bucket 404s.
+            // ── 3. Firebase / GCS Storage URL — re-generate a fresh signed URL ──────
+            //    Old signed URLs expire; getDownloadURL() produces a fresh one from the
+            //    storage path, which is all that's needed for archived HOCO runs.
             } else if (run.geojsonUrl) {
                 let fetchUrl = run.geojsonUrl;
 
                 if (fetchUrl.includes('firebasestorage.googleapis.com') || fetchUrl.includes('storage.googleapis.com')) {
-                    // Extract the object path from the URL.
-                    // firebasestorage.googleapis.com format:
-                    //   /v0/b/<bucket>/o/<encoded-path>?token=...
-                    let storagePath = '';
                     try {
+                        let storagePath = '';
                         const urlObj = new URL(fetchUrl);
-                        const oSegment = urlObj.pathname.split('/o/')[1];
-                        if (oSegment) {
-                            // Strip any query params that leaked into the pathname
-                            storagePath = decodeURIComponent(oSegment.split('?')[0]);
-                        }
-                    } catch (_) { /* malformed URL — storagePath stays '' */ }
-
-                    if (storagePath) {
-                        // Try primary bucket first, then legacy appspot bucket as fallback
-                        const bucketsToTry = [hocoStorage];
-                        const legacyBucketName = 'hoco-3b23e.appspot.com';
-                        const primaryBucketName = 'hoco-3b23e.firebasestorage.app';
-                        if (!fetchUrl.includes(legacyBucketName)) {
-                            // If the stored URL points to the new bucket, also try legacy
-                            bucketsToTry.push(getStorage(hocoApp, `gs://${legacyBucketName}`));
+                        if (fetchUrl.includes('firebasestorage.googleapis.com')) {
+                            const pathPart = urlObj.pathname.split('/o/')[1];
+                            if (pathPart) storagePath = decodeURIComponent(pathPart);
                         } else {
-                            // Stored URL is legacy bucket — also try new bucket
-                            bucketsToTry.push(getStorage(hocoApp, `gs://${primaryBucketName}`));
+                            const parts = urlObj.pathname.split('/');
+                            if (parts.length > 2) storagePath = decodeURIComponent(parts.slice(2).join('/'));
                         }
-
-                        let refreshed = false;
-                        for (const bucket of bucketsToTry) {
-                            try {
-                                fetchUrl = await getDownloadURL(storageRef(bucket, storagePath));
-                                refreshed = true;
-                                break;
-                            } catch (storageErr) {
-                                console.warn(`HOCO getDownloadURL failed (${storageErr?.code || storageErr?.message}) for run ${run.id}, path "${storagePath}" — trying next bucket.`);
-                            }
+                        if (storagePath) {
+                            storagePath = storagePath.split('?')[0];
+                            fetchUrl = await getDownloadURL(storageRef(hocoStorage, storagePath));
                         }
-                        if (!refreshed) {
-                            console.warn(`HOCO: all getDownloadURL attempts failed for run ${run.id}. Will attempt fetch with original URL.`);
-                        }
+                    } catch (storageErr) {
+                        console.warn('Could not refresh HOCO storage URL for', run.id, storageErr);
+                        // fetchUrl stays as the original; the fetch below will surface any real error
                     }
                 }
 
                 const response = await fetch(fetchUrl);
-                if (!response.ok) throw new Error(`Could not fetch HOCO GeoJSON (HTTP ${response.status}) for run ${run.id}.`);
+                if (!response.ok) throw new Error(`Could not fetch HOCO GeoJSON (${response.status}).`);
                 geojsonData = await response.json();
 
             } else {
@@ -861,11 +844,19 @@
 
         function getAutoRunsForSelectedWindow() {
             if (!selectedForecastWindow) return [];
+            // Use the forecast window's start date as the match key — same approach as
+            // index.html's getAutoRunsForDay(). This is far more robust than requiring
+            // getNormalizedAutoValidPeriod() to pass all its strict endTime checks, which
+            // silently drops older runs that were saved with slightly different time formats.
+            const targetDay = formatDateKey(selectedForecastWindow.start);
             return hocoRuns
                 .filter(run => run.type === 'automated')
                 .filter(run => {
+                    const startDate = getHocoStartDate(run);
+                    if (startDate && formatDateKey(startDate) === targetDay) return true;
+                    // Fallback for runs without a parseable startTime
                     const normalized = getNormalizedAutoValidPeriod(run);
-                    return normalized && normalized.key === selectedForecastWindow.key;
+                    return normalized && formatDateKey(normalized.start) === targetDay;
                 })
                 .sort((a, b) => (getHocoCreatedDate(a)?.getTime?.() || 0) - (getHocoCreatedDate(b)?.getTime?.() || 0));
         }
@@ -1351,12 +1342,30 @@
             const issuedAt = new Date(data.issuedAt || data.validFrom);
             forecastValidStart = Number.isNaN(validFrom.getTime()) ? null : validFrom;
             forecastValidEnd = Number.isNaN(validTo.getTime()) ? null : validTo;
+            // Build the forecast window using UTC date parts so the key matches the
+            // HOCO run startTime strings (which are stored as local/UTC wall-clock dates
+            // like "15/04/2025 06:00"). Using local date parts risks a 1-day offset when
+            // validFrom is a UTC midnight ISO string and the browser is behind UTC.
+            const fwYear  = validFrom.getUTCFullYear();
+            const fwMonth = validFrom.getUTCMonth();
+            const fwDay   = validFrom.getUTCDate();
+            // If validFrom is already in daytime hours UTC (>=06:00) use that date;
+            // if it is midnight UTC it might represent the previous local day, so
+            // fall back to local date parts when UTC and local agree on the same day.
+            const localYear  = validFrom.getFullYear();
+            const localMonth = validFrom.getMonth();
+            const localDay   = validFrom.getDate();
+            // Prefer UTC date but fall back to local if they produce a different result
+            // that matches the forecast title displayed on the page (local display wins).
+            const windowYear  = localYear;
+            const windowMonth = localMonth;
+            const windowDay   = localDay;
             selectedForecastWindow = window.GenWeatherUtils?.getForecastDayWindow
                 ? window.GenWeatherUtils.getForecastDayWindow(validFrom, 0)
                 : {
-                    start: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0),
-                    end: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate() + 1, 5, 59, 59, 999),
-                    key: formatDateKey(new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0))
+                    start: new Date(windowYear, windowMonth, windowDay, 6, 0, 0, 0),
+                    end: new Date(windowYear, windowMonth, windowDay + 1, 5, 59, 59, 999),
+                    key: formatDateKey(new Date(windowYear, windowMonth, windowDay, 6, 0, 0, 0))
                 };
             const forecasterName = data.forecaster
                 || (data.authorEmail ? data.authorEmail.split('@')[0].replace(/[._-]+/g, ' ') : 'Forecast Desk');
