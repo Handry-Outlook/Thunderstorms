@@ -675,31 +675,71 @@
 
         .editor-actions {
             display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .editor-actions-top {
+            display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 10px;
-            margin-bottom: 8px;
+        }
+
+        .publish-split-row {
+            display: none;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .publish-split-row.is-visible {
+            display: grid;
+        }
+
+        .btn-update {
+            padding: 13px 16px;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            background: #fff;
+            color: #334155;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-update:hover {
+            background: #f1f5f9;
+            border-color: #94a3b8;
         }
 
         .btn-new-version {
-            width: 100%;
             padding: 13px 16px;
-            border: 2px solid var(--accent);
+            border: none;
             border-radius: 14px;
-            background: #fff;
-            color: var(--accent);
-            font-size: 14px;
+            background: var(--accent);
+            color: #fff;
             font-weight: 800;
             cursor: pointer;
-            margin-bottom: 12px;
-            display: none;
+            font-size: 13px;
         }
 
         .btn-new-version:hover {
-            background: #fff5f5;
+            opacity: 0.9;
         }
 
-        .btn-new-version.visible {
-            display: block;
+        .version-context-note {
+            grid-column: 1 / -1;
+            font-size: 11px;
+            color: #64748b;
+            line-height: 1.5;
+            padding: 8px 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+
+        .version-context-note strong {
+            color: #1e293b;
         }
 
         .poster-options-row {
@@ -1034,7 +1074,7 @@
         @media (max-width: 760px) {
 
             .field-grid,
-            .editor-actions,
+            .editor-actions-top,
             .sort-row,
             .admin-hoco-actions,
             .kml-meta-grid {
@@ -1342,18 +1382,28 @@
                     page. Open the popup editor to write the full text.</div>
             </div>
 
-            <div class="editor-actions">
-                <button type="button" class="btn-ghost" id="clear-draft"><i class="fas fa-rotate-left"></i> Clear
-                    draft</button>
-                <button type="button" class="btn-ghost btn-danger" id="delete-forecast" disabled><i
-                        class="fas fa-trash"></i> Delete forecast</button>
-                <button type="button" class="btn-secondary" id="export-png"><i class="fas fa-file-export"></i> Export
-                    PNG</button>
+            <div class="editor-actions" id="editor-actions">
+                <div class="editor-actions-top">
+                    <button type="button" class="btn-ghost" id="clear-draft"><i class="fas fa-rotate-left"></i> Clear
+                        draft</button>
+                    <button type="button" class="btn-ghost btn-danger" id="delete-forecast" disabled><i
+                            class="fas fa-trash"></i> Delete forecast</button>
+                    <button type="button" class="btn-secondary" id="export-png"><i class="fas fa-file-export"></i> Export
+                        PNG</button>
+                </div>
+                <!-- Single publish button — shown for new drafts and KML drafts -->
                 <button class="btn-save" id="save-forecast"><i class="fas fa-bullhorn"></i> Publish Outlook</button>
+                <!-- Split row — shown only when editing an existing published forecast -->
+                <div class="publish-split-row" id="publish-split-row">
+                    <div class="version-context-note" id="version-context-note"></div>
+                    <button type="button" class="btn-update" id="update-forecast">
+                        <i class="fas fa-floppy-disk"></i> Update Outlook
+                    </button>
+                    <button type="button" class="btn-new-version" id="publish-new-version">
+                        <i class="fas fa-bullhorn"></i> Publish as New Version
+                    </button>
+                </div>
             </div>
-            <button type="button" class="btn-new-version" id="publish-new-version">
-                <i class="fas fa-code-branch"></i> Publish as New Version
-            </button>
 
             <div class="poster-options-row">
                 <label class="poster-options-label" for="poster-lightning-toggle">
@@ -1529,7 +1579,6 @@
         const historyList = document.getElementById('history-list');
         const layerStack = document.getElementById('layer-stack');
         const layerCount = document.getElementById('layer-count');
-        const saveButton = document.getElementById('save-forecast');
         const posterLightningToggle = document.getElementById('poster-lightning-toggle');
         const kmlBatchInput = document.getElementById('kml-batch-input');
         const importKmlButton = document.getElementById('import-kml-btn');
@@ -2968,21 +3017,44 @@
             }
         }
 
-        function setEditorMode(editing) {
+        function setEditorMode(editing, data) {
             document.getElementById('editor-title').textContent = editing ? 'Edit Outlook' : 'New Outlook';
-            saveButton.innerHTML = editing
-                ? '<i class="fas fa-floppy-disk"></i> Update Outlook'
-                : '<i class="fas fa-bullhorn"></i> Publish Outlook';
+
+            const saveBtn = document.getElementById('save-forecast');
+            const splitRow = document.getElementById('publish-split-row');
             const deleteButton = document.getElementById('delete-forecast');
+            const versionNote = document.getElementById('version-context-note');
+
+            // Only show the split row when editing a published (non-draft) forecast.
+            // For new drafts and KML drafts the single "Publish Outlook" button is enough.
+            const isPublishedEdit = editing && data && !data.isDraft;
+
+            if (isPublishedEdit) {
+                // Hide the single publish button, show the split row
+                saveBtn.style.display = 'none';
+                splitRow.classList.add('is-visible');
+
+                // Build a short context line: "Existing v3 · 29/04/2026"
+                const existingVersion = data.issueVersion || 1;
+                const issuedDate = data.issuedAt || data.updatedAt || data.createdAt || null;
+                const dateStr = issuedDate
+                    ? new Date(issuedDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : '—';
+                versionNote.innerHTML =
+                    `<strong>Currently loaded:</strong> v${existingVersion} · issued ${dateStr}<br>` +
+                    `<strong>Update Outlook</strong> — fix typos/small changes, keeps the same version.<br>` +
+                    `<strong>Publish as New Version</strong> — new issuance, increments to v${existingVersion + 1}.`;
+            } else {
+                // New draft mode: single publish button
+                saveBtn.style.display = '';
+                splitRow.classList.remove('is-visible');
+                saveBtn.innerHTML = editing
+                    ? '<i class="fas fa-bullhorn"></i> Publish Outlook'
+                    : '<i class="fas fa-bullhorn"></i> Publish Outlook';
+            }
+
             if (deleteButton) {
                 deleteButton.disabled = !editing;
-            }
-            // Show "Publish as New Version" only when editing a published (non-draft) outlook.
-            // It is hidden for new drafts and KML-imported drafts — those use Publish Outlook instead.
-            const newVersionButton = document.getElementById('publish-new-version');
-            if (newVersionButton) {
-                const isPublishedEdit = editing && currentEditingDocId && !currentEditingData?.isDraft;
-                newVersionButton.classList.toggle('visible', !!isPublishedEdit);
             }
         }
 
@@ -3069,7 +3141,7 @@
             currentEditingDocId = id;
             currentEditingData = data;
             clearImportedDraftMetadata();
-            setEditorMode(true);
+            setEditorMode(true, data);
             validFromInput.value = data.validFrom;
             validToInput.value = data.validTo;
             syncAdminHocoDateToInputs();
@@ -3487,6 +3559,9 @@
                 const data = docSnap.data();
                 if (!data) return;
                 if (validToValue && data.validTo && String(data.validTo) !== String(validToValue)) return;
+                // Drafts are staging records, not real issued versions — exclude them from
+                // version counting so publishing a draft doesn't incorrectly increment to v2.
+                if (data.isDraft) return;
                 matches.push({ id: docSnap.id, data });
             });
 
@@ -3554,7 +3629,7 @@
             const docRef = await addDoc(collection(db, 'forecasts_v2'), payload);
             currentEditingDocId = docRef.id;
             currentEditingData = payload;
-            setEditorMode(true);
+            setEditorMode(true, payload);
         }
 
         function normalizePosterTemplateRank(rank) {
@@ -4308,140 +4383,76 @@
             return getDownloadURL(storageRef);
         }
 
-        async function publishAsNewVersion() {
-            if (!currentEditingDocId || currentEditingData?.isDraft) {
-                showStatus('Load a published outlook first to publish a new version.', '#475569');
-                return;
-            }
-
+        // ─── Core publish helper ────────────────────────────────────────────────────
+        // mode: 'new'    → always creates a new Firestore doc with a bumped version
+        //       'update' → patches the existing doc in-place, preserving issueVersion
+        //                  (used for typo fixes / grammatical corrections)
+        // ────────────────────────────────────────────────────────────────────────────
+        async function saveForecast(mode = 'new') {
             const draftGeoJSON = createDraftGeoJSON();
             const validationErrors = validateDraftGeoJSON(draftGeoJSON);
+
             if (validationErrors.length) {
                 showStatus(validationErrors[0], 'var(--accent)');
                 alert(validationErrors.join('\n'));
                 return;
             }
 
-            const confirmed = window.confirm(
-                'This will create a brand-new outlook document with a bumped version number.\n' +
-                'The existing outlook will remain unchanged.\n\nProceed?'
-            );
-            if (!confirmed) return;
+            const now = new Date().toISOString();
+            const isPublishedEdit = currentEditingDocId && !currentEditingData?.isDraft;
 
-            const issuedAt = getDraftIssuedAtValue(new Date().toISOString());
-            let issueVersion = (currentEditingData?.issueVersion || 1) + 1;
+            if (mode === 'update' && isPublishedEdit) {
+                // ── UPDATE MODE ────────────────────────────────────────────────────────
+                // Patch the existing doc: update content + timestamps but keep issueVersion
+                // and issuedAt unchanged. This is intended for small post-publish fixes.
+                const keepVersion = currentEditingData?.issueVersion || 1;
+                const keepIssuedAt = currentEditingData?.issuedAt || currentEditingData?.createdAt || now;
+                const maxRank = Math.max(...draftGeoJSON.features.map(f => f.properties.rank || 0));
+
+                showStatus('Updating outlook...', '#1d4ed8');
+                try {
+                    await updateDoc(doc(db, 'forecasts_v2', currentEditingDocId), {
+                        geoJSON: JSON.stringify(draftGeoJSON),
+                        validFrom: validFromInput.value,
+                        validTo: validToInput.value,
+                        description: forecastText.value,
+                        isActive: currentEditingData?.isActive ?? true,
+                        authorEmail: currentUser.email,
+                        authorUid: currentUser.uid,
+                        forecaster: getForecasterName(),
+                        issuedAt: keepIssuedAt,
+                        issueVersion: keepVersion,
+                        maxRiskRank: maxRank,
+                        updatedAt: now    // updatedAt tracks when the last edit happened
+                    });
+                    showStatus(`Outlook updated (v${keepVersion} — no new version issued).`, 'var(--success)');
+                    resetForm();
+                } catch (error) {
+                    console.error('Update failed.', error);
+                    showStatus(error.message, 'var(--accent)');
+                }
+                return;
+            }
+
+            // ── PUBLISH NEW VERSION / NEW DRAFT MODE ───────────────────────────────
+            const issuedAt = getDraftIssuedAtValue(now);
+
+            // Resolve the correct version against Firebase so we always land one above
+            // the current highest version for this validity window.
+            let issueVersion;
             try {
                 const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                const existingHighest = windowMatch?.newestIssueVersion || 0;
                 if (windowMatch?.hasMatches) {
-                    issueVersion = Math.max(issueVersion, (windowMatch.newestIssueVersion || 1) + 1);
+                    issueVersion = existingHighest + 1;
+                } else {
+                    issueVersion = 1;
                 }
             } catch (err) {
-                console.warn('Could not resolve new version number from Firebase; using local +1.', err);
+                console.warn('Could not query existing forecasts for version check; falling back.', err);
+                issueVersion = getNextIssueVersion();
             }
 
-            const maxRank = Math.max(...draftGeoJSON.features.map(feature => feature.properties.rank || 0));
-            let posterArtifact = null;
-
-            showStatus('Building new version and archive poster...', '#1d4ed8');
-
-            try {
-                posterArtifact = await renderForecastPoster(draftGeoJSON, {
-                    issueVersion,
-                    issuedAt,
-                    includeLightning: posterLightningToggle.checked
-                });
-            } catch (error) {
-                console.error('Poster render failed before new version publish.', error);
-                showStatus(`Publishing new version. Poster rendering failed${error?.message ? ': ' + error.message : ''}`, '#f59e0b');
-            }
-
-            const payload = {
-                geoJSON: JSON.stringify(draftGeoJSON),
-                validFrom: validFromInput.value,
-                validTo: validToInput.value,
-                description: forecastText.value,
-                isActive: true,
-                authorEmail: currentUser.email,
-                authorUid: currentUser.uid,
-                forecaster: getForecasterName(),
-                issuedAt: issuedAt,
-                issueVersion: issueVersion,
-                maxRiskRank: maxRank,
-                createdAt: issuedAt,
-                updatedAt: issuedAt
-            };
-
-            try {
-                const docRef = await addDoc(collection(db, 'forecasts_v2'), payload);
-                const docId = docRef.id;
-
-                if (posterArtifact) {
-                    try {
-                        const posterUrl = await uploadPosterForForecast(docId, issueVersion, posterArtifact.dataUrl);
-                        await updateDoc(doc(db, 'forecasts_v2', docId), {
-                            posterUrl,
-                            posterFileName: posterArtifact.fileName,
-                            posterUpdatedAt: issuedAt
-                        });
-                        const lightningMessage = posterArtifact.lightningRequested
-                            ? (posterArtifact.lightningIncluded ? ' UK lightning overlay included.' : ' UK lightning overlay unavailable.')
-                            : '';
-                        showStatus(`New version v${issueVersion} published and poster synced.${lightningMessage}`, 'var(--success)');
-                    } catch (error) {
-                        console.error('Poster upload failed for new version.', error);
-                        showStatus(`New version v${issueVersion} published, but poster upload failed${error?.message ? ': ' + error.message : ''}.`, '#f59e0b');
-                    }
-                } else {
-                    showStatus(`New version v${issueVersion} published, but poster could not be rendered.`, '#f59e0b');
-                }
-
-                resetForm();
-            } catch (error) {
-                console.error('New version publish failed.', error);
-                showStatus(error.message, 'var(--accent)');
-            }
-        }
-
-        async function saveForecast() {
-            const draftGeoJSON = createDraftGeoJSON();
-            const validationErrors = validateDraftGeoJSON(draftGeoJSON);
-
-            if (validationErrors.length) {
-                showStatus(validationErrors[0], 'var(--accent)');
-                alert(validationErrors.join('\n'));
-                return;
-            }
-
-            const issuedAt = getDraftIssuedAtValue(new Date().toISOString());
-
-            // Version assignment rules:
-            //   - "Update Outlook" (editing a published doc): keep the SAME version — this is an
-            //     in-place correction (typos, grammar etc). Use publishAsNewVersion() for a real bump.
-            //   - New draw / KML draft being published: query Firebase for the highest existing
-            //     version for this validity window and land one above it.
-            let issueVersion;
-            if (currentEditingDocId && !currentEditingData?.isDraft) {
-                // In-place update: preserve the existing issueVersion exactly — no bump.
-                issueVersion = currentEditingData?.issueVersion || 1;
-            } else {
-                // New draft or KML-imported draft being published: consult Firebase so we always
-                // land one above the current highest version for this validity window.
-                try {
-                    const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
-                    const existingHighest = windowMatch?.newestIssueVersion || 0;
-                    if (currentEditingDocId && currentEditingData?.isDraft) {
-                        // Publishing a saved draft: use its own stored version if it's already
-                        // higher than everything else, otherwise bump above the existing highest.
-                        const draftVersion = currentEditingData?.issueVersion || 1;
-                        issueVersion = Math.max(draftVersion, existingHighest + 1 > draftVersion ? existingHighest + 1 : draftVersion);
-                    } else {
-                        issueVersion = windowMatch?.hasMatches ? existingHighest + 1 : 1;
-                    }
-                } catch (err) {
-                    console.warn('Could not query existing forecasts for version check; falling back.', err);
-                    issueVersion = getNextIssueVersion();
-                }
-            }
             const maxRank = Math.max(...draftGeoJSON.features.map(feature => feature.properties.rank || 0));
             let posterArtifact = null;
 
@@ -4470,20 +4481,16 @@
                 issuedAt: issuedAt,
                 issueVersion: issueVersion,
                 maxRiskRank: maxRank,
-                updatedAt: issuedAt
+                updatedAt: issuedAt,
+                createdAt: issuedAt
             };
 
             try {
-                let docId = currentEditingDocId;
-
-                if (currentEditingDocId) {
-                    payload.createdAt = currentEditingData?.createdAt || issuedAt;
-                    await updateDoc(doc(db, 'forecasts_v2', currentEditingDocId), payload);
-                } else {
-                    payload.createdAt = issuedAt;
-                    const docRef = await addDoc(collection(db, 'forecasts_v2'), payload);
-                    docId = docRef.id;
-                }
+                // Always create a new Firestore document for a new-version publish.
+                // This means "Publish as New Version" from an existing doc creates a
+                // fresh record — the old doc is preserved in history as-is.
+                const docRef = await addDoc(collection(db, 'forecasts_v2'), payload);
+                const docId = docRef.id;
 
                 if (posterArtifact) {
                     try {
@@ -4493,23 +4500,33 @@
                             posterFileName: posterArtifact.fileName,
                             posterUpdatedAt: issuedAt
                         });
-                        const syncMessage = currentEditingDocId ? 'Outlook updated and poster synced.' : 'Outlook published and poster synced.';
                         const lightningMessage = posterArtifact.lightningRequested
                             ? (posterArtifact.lightningIncluded ? ' UK lightning overlay included.' : ' UK lightning overlay unavailable.')
                             : '';
-                        showStatus(`${syncMessage}${lightningMessage}`, 'var(--success)');
+                        showStatus(`Outlook published as v${issueVersion} and poster synced.${lightningMessage}`, 'var(--success)');
                     } catch (error) {
                         console.error('Poster upload failed.', error);
-                        showStatus(
-                            `${currentEditingDocId ? 'Outlook updated, but poster upload failed' : 'Outlook published, but poster upload failed'}${error?.message ? `: ${error.message}` : ''}.`,
-                            '#f59e0b'
-                        );
+                        showStatus(`Outlook published as v${issueVersion}, but poster upload failed${error?.message ? `: ${error.message}` : ''}.`, '#f59e0b');
                     }
                 } else {
-                    showStatus(currentEditingDocId ? 'Outlook updated, but poster could not be rendered.' : 'Outlook published, but poster could not be rendered.', '#f59e0b');
+                    showStatus(`Outlook published as v${issueVersion}, but poster could not be rendered.`, '#f59e0b');
                 }
 
+                // If we just published from a KML draft doc, remove the draft from Firestore
+                // so it no longer appears as a confusing stale entry in the history list.
+                const supersededDraftId = currentEditingDocId && currentEditingData?.isDraft
+                    ? currentEditingDocId
+                    : null;
+
                 resetForm();
+
+                if (supersededDraftId) {
+                    try {
+                        await deleteDoc(doc(db, 'forecasts_v2', supersededDraftId));
+                    } catch (err) {
+                        console.warn('Could not remove superseded KML draft after publish.', err);
+                    }
+                }
             } catch (error) {
                 console.error(error);
                 showStatus(error.message, 'var(--accent)');
@@ -4747,8 +4764,9 @@
             }
         });
 
-        document.getElementById('save-forecast').addEventListener('click', saveForecast);
-        document.getElementById('publish-new-version').addEventListener('click', publishAsNewVersion);
+        document.getElementById('save-forecast').addEventListener('click', () => saveForecast('new'));
+        document.getElementById('update-forecast').addEventListener('click', () => saveForecast('update'));
+        document.getElementById('publish-new-version').addEventListener('click', () => saveForecast('new'));
         document.getElementById('export-png').addEventListener('click', exportForecastPng);
         document.getElementById('clear-draft').addEventListener('click', requestDraftReset);
         document.getElementById('delete-forecast').addEventListener('click', deleteCurrentForecast);
