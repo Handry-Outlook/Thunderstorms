@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forecast Detail | Convective Weather</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared-ui.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="forecast-utils.js"></script>
+
+    <style>
+        :root {
+            --light-bg: #f4f7fa;
+            --border-color: #d9e3ef;
+        }
+
+        body {
+            background-color: var(--light-bg);
+            color: #1f2937;
+        }
+
+        .detail-container {
+            padding: 34px;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 24px;
+            margin-bottom: 28px;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .page-title {
+            margin-top: 10px;
+        }
+
+        .map-card {
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .map-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 16px 18px;
+            border-bottom: 1px solid #e2e8f0;
+            background: linear-gradient(180deg, #fcfdff 0%, #f8fbff 100%);
+            flex-wrap: wrap;
+        }
+
+        .map-toolbar-copy {
+            display: grid;
+            gap: 6px;
+        }
+
+        .map-toolbar-note {
+            font-size: 13px;
+            color: #64748b;
+            line-height: 1.6;
+        }
+
+        .map-toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .hoco-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fbff;
+        }
+
+        .hoco-slider-row input[type="range"] {
+            flex: 1;
+        }
+
+        .hoco-slider-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            min-width: 180px;
+            text-align: right;
+        }
+
+        .hoco-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .layer-toggle-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #172033;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .layer-toggle-chip input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            accent-color: #1d4ed8;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            background: #e2e8f0;
+            color: #475569;
+        }
+
+        .status-chip.live {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-chip.loading {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .status-chip.off {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .status-chip.error {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        #map {
+            width: 100%;
+            height: 620px;
+            background: #e2e8f0;
+        }
+
+        .risk-legend {
+            display: flex;
+            background: #eef4fb;
+            padding: 14px 16px;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            padding: 7px 12px;
+            font-size: 11px;
+            font-weight: 800;
+            border-radius: 999px;
+            text-transform: uppercase;
+        }
+
+        .legend-help-btn {
+            margin-left: auto;
+            font-size: 12px;
+            color: #334155;
+            cursor: pointer;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-weight: 700;
+        }
+
+        .legend-help {
+            padding: 0 16px 16px;
+            color: #475569;
+        }
+
+        .legend-help p {
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .outlook-body {
+            margin-top: 26px;
+            display: grid;
+            gap: 22px;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .meta-card,
+        .discussion-card {
+            border: 1px solid #dbe4ef;
+            border-radius: 16px;
+            background: #fff;
+            padding: 18px;
+        }
+
+        .meta-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 8px;
+        }
+
+        .meta-value {
+            font-size: 14px;
+            color: #1f2937;
+            line-height: 1.6;
+        }
+
+        .discussion-card h2 {
+            margin: 0 0 12px;
+            font-size: 19px;
+            color: #172033;
+        }
+
+        .poster-card {
+            display: grid;
+            gap: 14px;
+        }
+
+        .poster-preview-shell {
+            border: 1px solid #dbe4ef;
+            border-radius: 14px;
+            overflow: hidden;
+            background: #f8fafc;
+        }
+
+        .poster-preview-shell img {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .poster-meta-note {
+            font-size: 13px;
+            color: #64748b;
+            line-height: 1.6;
+        }
+
+        .discussion-text {
+            font-size: 15px;
+            color: #334155;
+            white-space: pre-wrap;
+            line-height: 1.8;
+        }
+
+        footer {
+            text-align: center;
+            padding: 0 20px 28px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .low {
+            background: #67c6ac;
+            color: #fff;
+        }
+
+        .slgt {
+            background: #ffea00;
+            color: #172033;
+        }
+
+        .enh {
+            background: #ff7a21;
+            color: #fff;
+        }
+
+        .mdt {
+            background: #f91522;
+            color: #fff;
+        }
+
+        .high {
+            background: #b23cc7;
+            color: #fff;
+        }
+
+        .svr {
+            background: #111111;
+            color: #fff;
+        }
+
+        @media (max-width: 960px) {
+            .meta-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 720px) {
+            .detail-container {
+                padding: 22px;
+            }
+
+            #map {
+                height: 460px;
+            }
+
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .legend-help-btn {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="top-nav">
+            <a href="index.html" class="nav-brand">
+                <img src="assets/handry-outlook-logo.png" alt="Handry Outlook logo">
+                <span>Handry Outlook</span>
+            </a>
+            <nav class="nav-left" aria-label="Primary">
+                <a href="index.html">Outlooks</a>
+                <a href="obs.html">Observations</a>
+                <a href="forecasts.html">Forecasts <span class="badge" id="forecasts-count">0</span></a>
+                <a href="archive.html" class="active">Archive</a>
+            </nav>
+            <div class="nav-right">
+                <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <a href="admin.html" class="nav-icon-link" title="Forecaster admin">
+                    <i class="fas fa-user"></i>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <div class="detail-container page-panel">
+            <div class="header-row">
+                <div>
+                    <div class="page-eyebrow">Forecast Detail</div>
+                    <h1 id="title-date" class="page-title">Convective Outlook: -- --- ----</h1>
+                    <p class="page-subtitle">Interactive outlook map, issuance timing, and the full convective
+                        discussion.</p>
+                </div>
+                <div class="action-row">
+                    <a href="archive.html" class="btn-ghost"><i class="fas fa-arrow-left"></i> Back to archive</a>
+                    <button type="button" class="btn-secondary" id="copy-link-btn"><i class="fas fa-link"></i> Copy
+                        link</button>
+                    <a href="#" class="btn-secondary" id="poster-link-btn" hidden><i class="fas fa-image"></i> Poster
+                        PNG</a>
+                </div>
+            </div>
+
+            <div class="map-card">
+                <div class="map-toolbar">
+                    <div class="map-toolbar-copy">
+                        <div class="page-eyebrow">Live Overlay</div>
+                        <div class="map-toolbar-note">Optional UK lightning layer using the same live strike feed as the
+                            main outlook page.</div>
+                    </div>
+                    <div class="map-toolbar-actions">
+                        <label class="layer-toggle-chip" for="lightningToggle">
+                            <input type="checkbox" id="lightningToggle" checked>
+                            <span>UK Lightning</span>
+                        </label>
+                        <label class="layer-toggle-chip" for="forecastLayerToggle">
+                            <input type="checkbox" id="forecastLayerToggle" checked>
+                            <span>Show Forecast</span>
+                        </label>
+                        <label class="layer-toggle-chip" for="hocoAutoToggle">
+                            <input type="checkbox" id="hocoAutoToggle">
+                            <span>HOCO Auto</span>
+                        </label>
+                        <label class="layer-toggle-chip" for="hocoEnsembleToggle">
+                            <input type="checkbox" id="hocoEnsembleToggle">
+                            <span>HOCO Ensemble</span>
+                        </label>
+                        <select id="lightningLayer" hidden aria-hidden="true" tabindex="-1">
+                            <option value="uk-lightning" selected>UK Lightning</option>
+                        </select>
+                        <div class="status-chip loading" id="lightning-status">Loading UK lightning...</div>
+                    </div>
+                </div>
+                <div class="hoco-slider-row">
+                    <input type="range" id="hocoRunSlider" min="0" max="0" value="0" step="1" disabled>
+                    <span class="hoco-slider-label" id="hocoRunIssuedLabel">No HOCO run</span>
+                </div>
+                <div id="map"></div>
+
+                <div class="risk-legend">
+                    <div class="legend-item low">Low</div>
+                    <div class="legend-item slgt">Slight</div>
+                    <div class="legend-item mdt">Moderate</div>
+                    <div class="legend-item high">High</div>
+                    <div class="legend-item svr">Severe</div>
+                    <button type="button" class="legend-help-btn" id="legend-help-btn">Risk guide</button>
+                </div>
+
+                <div class="legend-help" id="legend-help" hidden>
+                    <p>These categories describe increasing thunderstorm coverage and severity potential. Nested areas
+                        are shown with clipped geometry so the map opacity stays consistent even where polygons overlap.
+                    </p>
+                </div>
+            </div>
+
+            <div class="outlook-body">
+                <div class="meta-grid">
+                    <div class="meta-card">
+                        <div class="meta-label">Forecast Type</div>
+                        <div class="meta-value">Convective Outlook</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Valid Window</div>
+                        <div class="meta-value" id="valid-time">--:-- UTC --- -- --- ---- - --:-- UTC --- -- --- ----
+                        </div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Issued</div>
+                        <div class="meta-value" id="issued-time">--:-- UTC --- -- --- ----</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Forecaster</div>
+                        <div class="meta-value" id="issued-by">---</div>
+                    </div>
+                </div>
+
+                <div class="hoco-summary-grid">
+                    <div class="meta-card">
+                        <div class="meta-label">HOCO Auto Runs</div>
+                        <div class="meta-value" id="hoco-auto-run-count">0</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Selected Auto Issued</div>
+                        <div class="meta-value" id="hoco-auto-issued">--</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Ensemble Sources</div>
+                        <div class="meta-value" id="hoco-ensemble-source-count">0</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-label">Ensemble Issued Span</div>
+                        <div class="meta-value" id="hoco-ensemble-issued-span">--</div>
+                    </div>
+                </div>
+
+                <div class="discussion-card poster-card" id="poster-card" hidden>
+                    <div>
+                        <h2>Archive Poster PNG</h2>
+                        <div class="poster-meta-note" id="poster-status">Checking synced archive poster...</div>
+                    </div>
+                    <div class="poster-preview-shell" id="poster-preview-shell" hidden>
+                        <img id="poster-preview-img" alt="Archived forecast poster preview">
+                    </div>
+                </div>
+
+                <div class="discussion-card">
+                    <h2>Convective Discussion</h2>
+                    <div class="discussion-text" id="discussion-content">
+                        Loading meteorological discussion...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>&copy; Convective Weather</footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { collection, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, where } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        // --- FIREBASE CONFIG ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyD2lgPAtAYksA4guBCITLq_4RkBpavcXjs",
+            authDomain: "genweather-f9a45.firebaseapp.com",
+            projectId: "genweather-f9a45",
+            storageBucket: "genweather-f9a45.firebasestorage.app",
+            messagingSenderId: "682497500954",
+            appId: "1:682497500954:web:54c400f45cd9b8b6cf2ea3"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const hocoConfig = {
+            apiKey: "AIzaSyA8IYTApDl8vhZENPJXIw48rR_SUhfFPVQ",
+            authDomain: "hoco-3b23e.firebaseapp.com",
+            projectId: "hoco-3b23e",
+            storageBucket: "hoco-3b23e.firebasestorage.app",
+            messagingSenderId: "409513272369",
+            appId: "1:409513272369:web:a857d9b039d53710f8a110"
+        };
+        const hocoApp = initializeApp(hocoConfig, 'hoco-forecast-detail');
+        const hocoDb = getFirestore(hocoApp);
+        const legendHelpBtn = document.getElementById('legend-help-btn');
+        const legendHelpPanel = document.getElementById('legend-help');
+        const copyLinkBtn = document.getElementById('copy-link-btn');
+        const posterLinkBtn = document.getElementById('poster-link-btn');
+        const posterCard = document.getElementById('poster-card');
+        const posterStatus = document.getElementById('poster-status');
+        const posterPreviewShell = document.getElementById('poster-preview-shell');
+        const posterPreviewImg = document.getElementById('poster-preview-img');
+        const lightningToggle = document.getElementById('lightningToggle');
+        const forecastLayerToggle = document.getElementById('forecastLayerToggle');
+        const lightningLayerSelect = document.getElementById('lightningLayer');
+        const lightningStatus = document.getElementById('lightning-status');
+        const hocoAutoToggle = document.getElementById('hocoAutoToggle');
+        const hocoEnsembleToggle = document.getElementById('hocoEnsembleToggle');
+        const hocoRunSlider = document.getElementById('hocoRunSlider');
+        const hocoRunIssuedLabel = document.getElementById('hocoRunIssuedLabel');
+        const forecastsBadge = document.getElementById('forecasts-count');
+        const hocoAutoRunCount = document.getElementById('hoco-auto-run-count');
+        const hocoAutoIssued = document.getElementById('hoco-auto-issued');
+        const hocoEnsembleSourceCount = document.getElementById('hoco-ensemble-source-count');
+        const hocoEnsembleIssuedSpan = document.getElementById('hoco-ensemble-issued-span');
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGFuZHJ5MjAxOTEwMjYiLCJhIjoiY21jYWg2eG1lMDNkYTJxczVyOWM5bW9mciJ9.bA-qxiByTB_RseY1fgU4rg';
+        const UK_LIGHTNING_SOURCE_ID = 'forecast-detail-uk-lightning-source';
+        const UK_LIGHTNING_GLOW_ID = 'forecast-detail-uk-lightning-glow';
+        const UK_LIGHTNING_CORE_ID = 'forecast-detail-uk-lightning-core';
+        const HOCO_AUTO_SOURCE_ID = 'forecast-detail-hoco-auto-source';
+        const HOCO_AUTO_FILL_ID = 'forecast-detail-hoco-auto-fill';
+        const HOCO_AUTO_LINE_ID = 'forecast-detail-hoco-auto-line';
+        const HOCO_ENSEMBLE_SOURCE_ID = 'forecast-detail-hoco-ensemble-source';
+        const HOCO_ENSEMBLE_FILL_ID = 'forecast-detail-hoco-ensemble-fill';
+        const HOCO_ENSEMBLE_LINE_ID = 'forecast-detail-hoco-ensemble-line';
+        const UK_LIGHTNING_LOOKBACK_MINUTES = 360;
+        let map = null;
+        let ukLightningStrikes = [];
+        let ukLightningLastUpdate = null;
+        let ukLightningRefreshTimer = null;
+        let forecastValidStart = null;
+        let forecastValidEnd = null;
+        let selectedForecastWindow = null;
+        let hocoRuns = [];
+        let visibleHocoRuns = [];
+        let selectedHocoRunId = null;
+        let activeHocoAutoGeojson = null;
+        let activeHocoEnsembleGeojson = null;
+        const hocoGeojsonCache = new Map();
+        const hocoEnsembleCache = new Map();
+        let hocoUnsubscribe = null;
+
+        legendHelpBtn.addEventListener('click', () => {
+            legendHelpPanel.hidden = !legendHelpPanel.hidden;
+            legendHelpBtn.innerHTML = legendHelpPanel.hidden
+                ? '<i class="fas fa-circle-info"></i> Risk guide'
+                : '<i class="fas fa-chevron-up"></i> Hide guide';
+        });
+
+        copyLinkBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(window.location.href);
+                copyLinkBtn.innerHTML = '<i class="fas fa-check"></i> Link copied';
+                setTimeout(() => {
+                    copyLinkBtn.innerHTML = '<i class="fas fa-link"></i> Copy link';
+                }, 1800);
+            } catch (error) {
+                window.prompt('Copy this link:', window.location.href);
+            }
+        });
+
+        function setLightningStatus(message, tone = 'off') {
+            lightningStatus.textContent = message;
+            lightningStatus.className = `status-chip ${tone}`;
+        }
+
+        function formatDateKey(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function parseHocoTime(timeStr) {
+            if (!timeStr) return null;
+            const match = String(timeStr).trim().match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\s+(\d{1,2}):(\d{2})/);
+            if (!match) return null;
+            const [, dd, mm, yyyy, hh, min] = match;
+            const date = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min));
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        function getHocoCreatedDate(run) {
+            if (!run?.createdAt) return null;
+            if (typeof run.createdAt.toDate === 'function') return run.createdAt.toDate();
+            const date = new Date(run.createdAt);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        function getHocoStartDate(run) {
+            return parseHocoTime(run?.startTime) || getHocoCreatedDate(run);
+        }
+
+        function getHocoEndDate(run) {
+            return parseHocoTime(run?.endTime || run?.startTime) || getHocoStartDate(run);
+        }
+
+        function getNormalizedAutoValidPeriod(run) {
+            if (run?.type !== 'automated') return null;
+            const start = getHocoStartDate(run);
+            const end = getHocoEndDate(run);
+            if (!start || !end) return null;
+            if (end.getHours() !== 5 || end.getMinutes() !== 59) return null;
+
+            const normalizedStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 6, 0, 0, 0);
+            const normalizedEnd = new Date(normalizedStart);
+            normalizedEnd.setDate(normalizedEnd.getDate() + 1);
+            normalizedEnd.setHours(5, 59, 0, 0);
+            if (Math.abs(end.getTime() - normalizedEnd.getTime()) > 60000) return null;
+
+            return { start: normalizedStart, end: normalizedEnd, key: formatDateKey(normalizedStart) };
+        }
+
+        function getHocoLightningColor(value) {
+            return window.GenWeatherUtils?.getHocoLightningColor?.(value) || '#66c2a4';
+        }
+
+        function getHocoProbabilityLabel(value) {
+            const numeric = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+            return `${numeric}% lightning`;
+        }
+
+        function decodeInlineGeojson(value) {
+            if (!value) return null;
+            if (typeof value === 'string') return JSON.parse(value);
+            return value;
+        }
+
+        function decorateHocoGeojson(geojsonData, metadata = {}) {
+            return {
+                type: 'FeatureCollection',
+                features: (geojsonData?.features || []).map((feature, index) => {
+                    const riskValue = window.GenWeatherUtils?.parseRiskPercent
+                        ? window.GenWeatherUtils.parseRiskPercent(feature?.properties)
+                        : Number(feature?.properties?.risk || feature?.properties?.peak_risk || 0);
+                    const hocoColor = getHocoLightningColor(riskValue || feature?.properties?.peak_risk || 0);
+                    return {
+                        ...feature,
+                        properties: {
+                            ...feature.properties,
+                            riskValue: riskValue,
+                            probabilityLabel: getHocoProbabilityLabel(riskValue),
+                            fill: hocoColor,
+                            color: hocoColor,
+                            stroke: hocoColor,
+                            sourceType: 'hoco',
+                            hocoSourceType: metadata.sourceType || 'auto',
+                            validFrom: metadata.validFrom || null,
+                            validTo: metadata.validTo || null,
+                            issuedAt: metadata.issuedAt || null,
+                            issuedStart: metadata.issuedStart || null,
+                            issuedEnd: metadata.issuedEnd || null,
+                            sourceCount: metadata.sourceCount || null,
+                            runLabel: metadata.runLabel || null,
+                            hocoId: `${metadata.runId || metadata.sourceType || 'hoco'}-${index}`
+                        }
+                    };
+                })
+            };
+        }
+
+        async function fetchHocoGeojson(run) {
+            if (!run?.id) throw new Error('Missing HOCO run identifier.');
+            if (hocoGeojsonCache.has(run.id)) return hocoGeojsonCache.get(run.id);
+
+            let geojsonData = null;
+            if (run.inlineGeojson || run.inlineGeojsonText || run.geojson || run.ensembleGeojson) {
+                geojsonData = decodeInlineGeojson(run.inlineGeojson ?? run.inlineGeojsonText ?? run.geojson ?? run.ensembleGeojson);
+            } else if (run.geojsonUrl) {
+                const response = await fetch(run.geojsonUrl);
+                if (!response.ok) throw new Error(`Could not fetch HOCO GeoJSON (${response.status}).`);
+                geojsonData = await response.json();
+            } else {
+                throw new Error('This HOCO run does not include GeoJSON.');
+            }
+
+            const normalized = getNormalizedAutoValidPeriod(run);
+            const featureCollection = decorateHocoGeojson(geojsonData, {
+                runId: run.id,
+                sourceType: 'auto',
+                validFrom: normalized?.start?.toISOString?.() || getHocoStartDate(run)?.toISOString?.() || null,
+                validTo: normalized?.end?.toISOString?.() || getHocoEndDate(run)?.toISOString?.() || null,
+                issuedAt: getHocoCreatedDate(run)?.toISOString?.() || null,
+                runLabel: `${run.region || 'UK'} automated guidance`
+            });
+            hocoGeojsonCache.set(run.id, featureCollection);
+            return featureCollection;
+        }
+
+        function renderGuidanceLayer(sourceId, fillId, lineId, geojsonData, fillOpacity, lineWidth) {
+            if (!map || !geojsonData) return;
+            if (!map.getSource(sourceId)) map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+            else map.getSource(sourceId).setData(geojsonData);
+
+            const firstSymbol = map.getStyle()?.layers?.find(layer => layer.type === 'symbol');
+            if (!map.getLayer(fillId)) {
+                map.addLayer({
+                    id: fillId,
+                    type: 'fill',
+                    source: sourceId,
+                    paint: {
+                        'fill-color': ['coalesce', ['get', 'fill'], ['get', 'color'], '#38bdf8'],
+                        'fill-opacity': fillOpacity
+                    }
+                }, firstSymbol?.id);
+            }
+            if (!map.getLayer(lineId)) {
+                map.addLayer({
+                    id: lineId,
+                    type: 'line',
+                    source: sourceId,
+                    paint: {
+                        'line-color': ['coalesce', ['get', 'fill'], ['get', 'color'], '#ffffff'],
+                        'line-width': lineWidth,
+                        'line-opacity': 0.92
+                    }
+                }, firstSymbol?.id);
+            }
+        }
+
+        function clearGuidanceLayer(sourceId, fillId, lineId) {
+            if (!map) return;
+            if (map.getLayer(lineId)) map.removeLayer(lineId);
+            if (map.getLayer(fillId)) map.removeLayer(fillId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+        }
+
+        function applyHocoLayerVisibility() {
+            const setVis = (id, visible) => { if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); };
+            setVis(HOCO_AUTO_FILL_ID, hocoAutoToggle.checked && !!activeHocoAutoGeojson);
+            setVis(HOCO_AUTO_LINE_ID, hocoAutoToggle.checked && !!activeHocoAutoGeojson);
+            setVis(HOCO_ENSEMBLE_FILL_ID, hocoEnsembleToggle.checked && !!activeHocoEnsembleGeojson);
+            setVis(HOCO_ENSEMBLE_LINE_ID, hocoEnsembleToggle.checked && !!activeHocoEnsembleGeojson);
+        }
+
+        function applyForecastLayerVisibility() {
+            const setVis = (id, visible) => { if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); };
+            const visible = !!forecastLayerToggle.checked;
+            setVis('risk-fill', visible);
+            setVis('risk-outline', visible);
+            setVis('risk-severe-outline', visible);
+        }
+
+        function getAutoRunsForSelectedWindow() {
+            if (!selectedForecastWindow) return [];
+            return hocoRuns
+                .filter(run => run.type === 'automated')
+                .filter(run => {
+                    const normalized = getNormalizedAutoValidPeriod(run);
+                    return normalized && normalized.key === selectedForecastWindow.key;
+                })
+                .sort((a, b) => (getHocoCreatedDate(a)?.getTime?.() || 0) - (getHocoCreatedDate(b)?.getTime?.() || 0));
+        }
+
+        function renderHocoSlider() {
+            const fallbackRun = visibleHocoRuns[visibleHocoRuns.length - 1] || null;
+            if (fallbackRun && !visibleHocoRuns.some(run => run.id === selectedHocoRunId)) selectedHocoRunId = fallbackRun.id;
+            const selectedIndex = visibleHocoRuns.findIndex(run => run.id === selectedHocoRunId);
+            hocoRunSlider.max = String(Math.max(visibleHocoRuns.length - 1, 0));
+            hocoRunSlider.disabled = visibleHocoRuns.length <= 1;
+            hocoRunSlider.value = String(Math.max(selectedIndex, 0));
+            hocoAutoRunCount.textContent = String(visibleHocoRuns.length);
+            if (!visibleHocoRuns.length) {
+                hocoRunIssuedLabel.textContent = 'No HOCO run for this valid period';
+                hocoAutoIssued.textContent = '--';
+            } else {
+                const run = visibleHocoRuns.find(item => item.id === selectedHocoRunId) || fallbackRun;
+                const issuedText = getHocoCreatedDate(run)?.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) || 'Unknown run time';
+                hocoRunIssuedLabel.textContent = issuedText;
+                hocoAutoIssued.textContent = issuedText;
+            }
+        }
+
+        async function loadSelectedHocoRun() {
+            const run = visibleHocoRuns.find(item => item.id === selectedHocoRunId) || visibleHocoRuns[visibleHocoRuns.length - 1] || null;
+            if (!run) {
+                activeHocoAutoGeojson = null;
+                clearGuidanceLayer(HOCO_AUTO_SOURCE_ID, HOCO_AUTO_FILL_ID, HOCO_AUTO_LINE_ID);
+                applyHocoLayerVisibility();
+                return;
+            }
+            try {
+                const geojson = await fetchHocoGeojson(run);
+                activeHocoAutoGeojson = geojson;
+                renderGuidanceLayer(HOCO_AUTO_SOURCE_ID, HOCO_AUTO_FILL_ID, HOCO_AUTO_LINE_ID, geojson, 0.24, 1.8);
+                applyHocoLayerVisibility();
+            } catch (error) {
+                console.error('HOCO auto load error:', error);
+                activeHocoAutoGeojson = null;
+                clearGuidanceLayer(HOCO_AUTO_SOURCE_ID, HOCO_AUTO_FILL_ID, HOCO_AUTO_LINE_ID);
+                applyHocoLayerVisibility();
+            }
+        }
+
+        async function loadSelectedHocoEnsemble() {
+            if (!visibleHocoRuns.length) {
+                activeHocoEnsembleGeojson = null;
+                clearGuidanceLayer(HOCO_ENSEMBLE_SOURCE_ID, HOCO_ENSEMBLE_FILL_ID, HOCO_ENSEMBLE_LINE_ID);
+                hocoEnsembleSourceCount.textContent = '0';
+                hocoEnsembleIssuedSpan.textContent = '--';
+                applyHocoLayerVisibility();
+                return;
+            }
+
+            const cacheKey = `${selectedForecastWindow?.key || 'day'}|${visibleHocoRuns.map(run => `${run.id}:${getHocoCreatedDate(run)?.getTime?.() || 0}`).join('|')}`;
+            try {
+                let ensembleGeojson = hocoEnsembleCache.get(cacheKey);
+                if (!ensembleGeojson) {
+                    const loadedRuns = await Promise.all(visibleHocoRuns.map(async run => ({
+                        createdAt: getHocoCreatedDate(run)?.toISOString?.() || null,
+                        geojson: await fetchHocoGeojson(run)
+                    })));
+                    const rawEnsembleGeojson = window.GenWeatherUtils?.buildClientEnsembleGeojson
+                        ? window.GenWeatherUtils.buildClientEnsembleGeojson(loadedRuns, { anomalyAware: true, noiseFilter: true })
+                        : { type: 'FeatureCollection', features: [] };
+                    ensembleGeojson = decorateHocoGeojson(rawEnsembleGeojson, {
+                        sourceType: 'ensemble',
+                        validFrom: selectedForecastWindow?.start?.toISOString?.() || null,
+                        validTo: selectedForecastWindow?.end?.toISOString?.() || null,
+                        issuedStart: getHocoCreatedDate(visibleHocoRuns[0])?.toISOString?.() || null,
+                        issuedEnd: getHocoCreatedDate(visibleHocoRuns[visibleHocoRuns.length - 1])?.toISOString?.() || null,
+                        sourceCount: visibleHocoRuns.length,
+                        runLabel: `${visibleHocoRuns[visibleHocoRuns.length - 1]?.region || 'UK'} HOCO Ensemble`
+                    });
+                    hocoEnsembleCache.set(cacheKey, ensembleGeojson);
+                }
+                activeHocoEnsembleGeojson = ensembleGeojson;
+                if (ensembleGeojson.features.length) {
+                    renderGuidanceLayer(HOCO_ENSEMBLE_SOURCE_ID, HOCO_ENSEMBLE_FILL_ID, HOCO_ENSEMBLE_LINE_ID, ensembleGeojson, 0.22, 2.4);
+                } else {
+                    clearGuidanceLayer(HOCO_ENSEMBLE_SOURCE_ID, HOCO_ENSEMBLE_FILL_ID, HOCO_ENSEMBLE_LINE_ID);
+                }
+                hocoEnsembleSourceCount.textContent = String(visibleHocoRuns.length);
+                const earliest = getHocoCreatedDate(visibleHocoRuns[0]);
+                const latest = getHocoCreatedDate(visibleHocoRuns[visibleHocoRuns.length - 1]);
+                hocoEnsembleIssuedSpan.textContent = `${earliest ? earliest.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'} to ${latest ? latest.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--'}`;
+                applyHocoLayerVisibility();
+            } catch (error) {
+                console.error('HOCO ensemble build error:', error);
+                activeHocoEnsembleGeojson = null;
+                clearGuidanceLayer(HOCO_ENSEMBLE_SOURCE_ID, HOCO_ENSEMBLE_FILL_ID, HOCO_ENSEMBLE_LINE_ID);
+                hocoEnsembleSourceCount.textContent = String(visibleHocoRuns.length);
+                hocoEnsembleIssuedSpan.textContent = 'Unavailable';
+                applyHocoLayerVisibility();
+            }
+        }
+
+        async function refreshHocoForSelectedWindow() {
+            visibleHocoRuns = getAutoRunsForSelectedWindow();
+            if (visibleHocoRuns.length && !visibleHocoRuns.some(run => run.id === selectedHocoRunId)) {
+                selectedHocoRunId = visibleHocoRuns[visibleHocoRuns.length - 1].id;
+            }
+            renderHocoSlider();
+            await Promise.all([loadSelectedHocoRun(), loadSelectedHocoEnsemble()]);
+        }
+
+        function initHocoRuns() {
+            const runsQuery = query(collection(hocoDb, 'hoco_requests'), orderBy('createdAt', 'desc'), limit(180));
+            if (hocoUnsubscribe) hocoUnsubscribe();
+            hocoUnsubscribe = onSnapshot(runsQuery, snapshot => {
+                hocoRuns = [];
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if (data.type !== 'automated') return;
+                    hocoRuns.push({ id: docSnap.id, ...data });
+                });
+                refreshHocoForSelectedWindow();
+            }, error => {
+                console.error('HOCO snapshot error:', error);
+            });
+        }
+
+        function stopUkLightningRefresh() {
+            if (ukLightningRefreshTimer) {
+                clearInterval(ukLightningRefreshTimer);
+                ukLightningRefreshTimer = null;
+            }
+        }
+
+        function moveUkLightningLayersToTop() {
+            if (!map) return;
+            if (map.getLayer(UK_LIGHTNING_GLOW_ID)) {
+                map.moveLayer(UK_LIGHTNING_GLOW_ID);
+            }
+            if (map.getLayer(UK_LIGHTNING_CORE_ID)) {
+                map.moveLayer(UK_LIGHTNING_CORE_ID);
+            }
+        }
+
+        function removeUkLightningLayers() {
+            if (!map) return;
+            [UK_LIGHTNING_CORE_ID, UK_LIGHTNING_GLOW_ID].forEach(layerId => {
+                if (map.getLayer(layerId)) {
+                    map.removeLayer(layerId);
+                }
+            });
+            if (map.getSource(UK_LIGHTNING_SOURCE_ID)) {
+                map.removeSource(UK_LIGHTNING_SOURCE_ID);
+            }
+        }
+
+        function resolveForecastLightningWindow(referenceTime = Date.now()) {
+            const nowTime = referenceTime instanceof Date ? referenceTime.getTime() : Number(referenceTime || Date.now());
+            const validStartTime = forecastValidStart instanceof Date && !Number.isNaN(forecastValidStart.getTime())
+                ? forecastValidStart.getTime()
+                : null;
+            const validEndTime = forecastValidEnd instanceof Date && !Number.isNaN(forecastValidEnd.getTime())
+                ? forecastValidEnd.getTime()
+                : null;
+
+            if (validStartTime !== null && validEndTime !== null) {
+                return {
+                    startTime: validStartTime,
+                    endTime: Math.min(validEndTime, nowTime),
+                    referenceTime: Math.min(validEndTime, nowTime)
+                };
+            }
+
+            return {
+                startTime: nowTime - (UK_LIGHTNING_LOOKBACK_MINUTES * 60 * 1000),
+                endTime: nowTime,
+                referenceTime: nowTime
+            };
+        }
+
+        function buildUkLightningGeojson(referenceTime = Date.now()) {
+            const lightningWindow = resolveForecastLightningWindow(referenceTime);
+            const endTime = lightningWindow.endTime;
+            const startTime = lightningWindow.startTime;
+
+            return {
+                type: 'FeatureCollection',
+                features: ukLightningStrikes
+                    .filter(strike => strike?.time instanceof Date && !Number.isNaN(strike.time.getTime()))
+                    .filter(strike => strike.time.getTime() >= startTime && strike.time.getTime() <= endTime)
+                    .map(strike => {
+                        const ageMinutes = Math.max(0, Math.round((lightningWindow.referenceTime - strike.time.getTime()) / 60000));
+                        return {
+                            type: 'Feature',
+                            geometry: {
+                                type: 'Point',
+                                coordinates: strike.coordinates
+                            },
+                            properties: {
+                                strike_time: strike.strike_time,
+                                ageMinutes: ageMinutes
+                            }
+                        };
+                    })
+            };
+        }
+
+        function renderUkLightningLayers() {
+            if (!map) return;
+            const geojsonData = buildUkLightningGeojson();
+            const strikeCount = geojsonData.features.length;
+
+            if (!map.getSource(UK_LIGHTNING_SOURCE_ID)) {
+                map.addSource(UK_LIGHTNING_SOURCE_ID, {
+                    type: 'geojson',
+                    data: geojsonData
+                });
+            } else {
+                map.getSource(UK_LIGHTNING_SOURCE_ID).setData(geojsonData);
+            }
+
+            const firstSymbol = map.getStyle()?.layers?.find(layer => layer.type === 'symbol');
+            const beforeId = firstSymbol?.id;
+
+            if (!map.getLayer(UK_LIGHTNING_GLOW_ID)) {
+                map.addLayer({
+                    id: UK_LIGHTNING_GLOW_ID,
+                    type: 'circle',
+                    source: UK_LIGHTNING_SOURCE_ID,
+                    paint: {
+                        'circle-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, '#fff7cc',
+                            30, '#ffd24d',
+                            90, '#ff9f1c',
+                            180, '#fb7185',
+                            360, '#c084fc'
+                        ],
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, 12,
+                            30, 10,
+                            90, 8,
+                            180, 6,
+                            360, 4
+                        ],
+                        'circle-opacity': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, 0.42,
+                            60, 0.32,
+                            180, 0.18,
+                            360, 0.08
+                        ],
+                        'circle-blur': 0.8
+                    }
+                }, beforeId);
+            }
+
+            if (!map.getLayer(UK_LIGHTNING_CORE_ID)) {
+                map.addLayer({
+                    id: UK_LIGHTNING_CORE_ID,
+                    type: 'circle',
+                    source: UK_LIGHTNING_SOURCE_ID,
+                    paint: {
+                        'circle-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, '#ffffff',
+                            30, '#ffe066',
+                            90, '#ffb347',
+                            180, '#fb7185',
+                            360, '#d8b4fe'
+                        ],
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, 4.6,
+                            60, 4,
+                            180, 3.2,
+                            360, 2.2
+                        ],
+                        'circle-stroke-color': '#1f2937',
+                        'circle-stroke-width': 0.6,
+                        'circle-opacity': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'ageMinutes'],
+                            0, 1,
+                            120, 0.88,
+                            360, 0.55
+                        ]
+                    }
+                }, beforeId);
+            }
+
+            moveUkLightningLayersToTop();
+
+            if (!strikeCount) {
+                setLightningStatus('No UK strikes in forecast valid window', 'off');
+                return;
+            }
+
+            const updatedLabel = ukLightningLastUpdate
+                ? ukLightningLastUpdate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                : '--:--';
+            setLightningStatus(`${strikeCount} strikes in valid window / updated ${updatedLabel}`, 'live');
+        }
+
+        async function fetchUkLightningData() {
+            const githubUrl1 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data.json';
+            const githubUrl2 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data_2025_autumn.json';
+            const metOfficeBaseUrl = 'https://data.consumer-digital.api.metoffice.gov.uk/v1/lightning';
+
+            const fetchJsonOrNull = async url => {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) return null;
+                    return await response.json();
+                } catch (error) {
+                    return null;
+                }
+            };
+
+            const asStrikeList = response => response?.lightning_strikes?.map(strike => ({
+                ...strike,
+                time: new Date(strike.strike_time)
+            })) || [];
+
+            const [mainResponse, githubResponse1, githubResponse2] = await Promise.all([
+                fetchJsonOrNull(metOfficeBaseUrl),
+                fetchJsonOrNull(githubUrl1),
+                fetchJsonOrNull(githubUrl2)
+            ]);
+
+            const baseStrikes = asStrikeList(mainResponse);
+            const chunkUrls = (mainResponse?.chunks || []).map(chunk =>
+                `${metOfficeBaseUrl}?last-minutes=1&chunk=${chunk.chunk}`
+            );
+            const chunkResponses = await Promise.all(chunkUrls.map(url => fetchJsonOrNull(url)));
+
+            const githubStrikes1 = asStrikeList(githubResponse1);
+            const githubStrikes2 = asStrikeList(githubResponse2);
+            const chunkStrikes = chunkResponses.flatMap(response => asStrikeList(response));
+            const allStrikes = [...githubStrikes1, ...githubStrikes2, ...baseStrikes, ...chunkStrikes];
+
+            if (!allStrikes.length) {
+                throw new Error('No data returned from the available UK lightning feeds.');
+            }
+
+            const seen = new Map();
+
+            ukLightningStrikes = allStrikes.filter(strike => {
+                const coords = Array.isArray(strike.coordinates) ? strike.coordinates : [null, null];
+                const key = `${strike.strike_time}_${coords[0]}_${coords[1]}`;
+                if (seen.has(key)) return false;
+                seen.set(key, true);
+                return coords[0] !== null && coords[1] !== null && strike.time instanceof Date && !Number.isNaN(strike.time.getTime());
+            });
+            ukLightningLastUpdate = new Date();
+        }
+
+        async function ensureUkLightningLayer() {
+            const isLayerActive = lightningToggle.checked && lightningLayerSelect.value === 'uk-lightning';
+            if (!isLayerActive || !map) return;
+
+            const dataIsFresh = ukLightningLastUpdate && (Date.now() - ukLightningLastUpdate.getTime()) < 60000 && ukLightningStrikes.length;
+            if (!dataIsFresh) {
+                setLightningStatus('Loading UK lightning...', 'loading');
+                await fetchUkLightningData();
+            }
+
+            renderUkLightningLayers();
+        }
+
+        function scheduleUkLightningRefresh() {
+            stopUkLightningRefresh();
+            const isLayerActive = lightningToggle.checked && lightningLayerSelect.value === 'uk-lightning';
+            if (!isLayerActive) return;
+
+            ukLightningRefreshTimer = setInterval(async () => {
+                try {
+                    await fetchUkLightningData();
+                    renderUkLightningLayers();
+                } catch (error) {
+                    console.error('UK lightning refresh error:', error);
+                    setLightningStatus('UK lightning feed unavailable', 'error');
+                }
+            }, 60000);
+        }
+
+        lightningToggle.addEventListener('change', async () => {
+            if (!map) return;
+
+            if (!lightningToggle.checked) {
+                stopUkLightningRefresh();
+                removeUkLightningLayers();
+                setLightningStatus('UK lightning hidden', 'off');
+                return;
+            }
+
+            try {
+                await ensureUkLightningLayer();
+                scheduleUkLightningRefresh();
+            } catch (error) {
+                console.error('UK lightning load error:', error);
+                setLightningStatus('UK lightning feed unavailable', 'error');
+            }
+        });
+        hocoAutoToggle.addEventListener('change', () => applyHocoLayerVisibility());
+        hocoEnsembleToggle.addEventListener('change', () => applyHocoLayerVisibility());
+        forecastLayerToggle.addEventListener('change', () => applyForecastLayerVisibility());
+        hocoRunSlider.addEventListener('input', async () => {
+            const sliderIndex = Number(hocoRunSlider.value || 0);
+            const run = visibleHocoRuns[sliderIndex];
+            if (!run) return;
+            selectedHocoRunId = run.id;
+            renderHocoSlider();
+            await loadSelectedHocoRun();
+        });
+
+        window.addEventListener('beforeunload', stopUkLightningRefresh);
+        window.addEventListener('beforeunload', () => {
+            if (hocoUnsubscribe) hocoUnsubscribe();
+        });
+
+        // --- GET DATA ID FROM URL ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const forecastId = urlParams.get('id');
+
+        async function fetchForecast() {
+            if (!forecastId) {
+                document.getElementById('discussion-content').innerText = "No forecast ID provided.";
+                return;
+            }
+
+            try {
+                const docRef = doc(db, "forecasts_v2", forecastId);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    renderPage(data);
+                } else {
+                    document.getElementById('discussion-content').innerText = "Forecast not found.";
+                }
+            } catch (error) {
+                console.error("Error fetching forecast:", error);
+            }
+        }
+
+        async function refreshForecastsBadge() {
+            if (!forecastsBadge) return;
+            try {
+                const nowIso = new Date().toISOString().slice(0, 16);
+                const q = query(
+                    collection(db, "forecasts_v2"),
+                    where("isActive", "==", true),
+                    where("validTo", ">=", nowIso),
+                    orderBy("validTo", "asc")
+                );
+                const snapshot = await getDocs(q);
+                forecastsBadge.textContent = String(snapshot.size);
+            } catch (error) {
+                forecastsBadge.textContent = '?';
+            }
+        }
+
+        function renderPage(data) {
+            const geoJSON = JSON.parse(data.geoJSON);
+            const validFrom = new Date(data.validFrom);
+            const validTo = new Date(data.validTo);
+            const issuedAt = new Date(data.issuedAt || data.validFrom);
+            forecastValidStart = Number.isNaN(validFrom.getTime()) ? null : validFrom;
+            forecastValidEnd = Number.isNaN(validTo.getTime()) ? null : validTo;
+            selectedForecastWindow = window.GenWeatherUtils?.getForecastDayWindow
+                ? window.GenWeatherUtils.getForecastDayWindow(validFrom, 0)
+                : {
+                    start: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0),
+                    end: new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate() + 1, 5, 59, 59, 999),
+                    key: formatDateKey(new Date(validFrom.getFullYear(), validFrom.getMonth(), validFrom.getDate(), 6, 0, 0, 0))
+                };
+            const forecasterName = data.forecaster
+                || (data.authorEmail ? data.authorEmail.split('@')[0].replace(/[._-]+/g, ' ') : 'Forecast Desk');
+
+            document.getElementById('title-date').innerText = `Convective Outlook: ${validFrom.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`;
+            document.getElementById('valid-time').innerText = `${validFrom.toUTCString().replace('GMT', 'UTC')} - ${validTo.toUTCString().replace('GMT', 'UTC')}`;
+            document.getElementById('issued-time').innerText = data.issueVersion
+                ? `${issuedAt.toUTCString().replace('GMT', 'UTC')} (Version ${data.issueVersion})`
+                : issuedAt.toUTCString().replace('GMT', 'UTC');
+            document.getElementById('issued-by').innerText = forecasterName;
+            document.getElementById('discussion-content').innerText = data.description;
+
+            posterCard.hidden = false;
+            if (data.posterUrl) {
+                posterLinkBtn.hidden = false;
+                posterLinkBtn.href = data.posterUrl;
+                posterLinkBtn.target = '_blank';
+                posterLinkBtn.rel = 'noopener';
+                if (data.posterFileName) {
+                    posterLinkBtn.download = data.posterFileName;
+                }
+
+                posterStatus.textContent = 'Loading synced poster preview from archive storage.';
+                posterPreviewShell.hidden = false;
+                posterPreviewImg.onload = () => {
+                    posterStatus.textContent = 'This is the synced export image stored with the published outlook for archive use.';
+                    posterPreviewShell.hidden = false;
+                };
+                posterPreviewImg.onerror = () => {
+                    posterStatus.textContent = 'Poster PNG could not be loaded from storage. Attempting to generate it locally...';
+                    posterPreviewShell.hidden = true;
+                    posterLinkBtn.hidden = true;
+                    posterPreviewImg.removeAttribute('src');
+                    attemptLocalPosterRender(data, geoJSON);
+                };
+                posterPreviewImg.src = data.posterUrl;
+            } else {
+                posterLinkBtn.hidden = true;
+                posterPreviewShell.hidden = true;
+                posterPreviewImg.removeAttribute('src');
+                posterStatus.textContent = 'No synced poster PNG found. Generating it locally...';
+                attemptLocalPosterRender(data, geoJSON);
+            }
+
+            const displayFeatures = window.GenWeatherUtils
+                ? window.GenWeatherUtils.normalizeDisplayFeatures(geoJSON.features)
+                : geoJSON.features;
+
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/light-v11',
+                center: [-2, 54.5],
+                zoom: 5.5
+            });
+
+            map.on('load', () => {
+                map.addSource('forecast-data', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: displayFeatures
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'risk-fill',
+                    'type': 'fill',
+                    'source': 'forecast-data',
+                    'filter': ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                    'paint': {
+                        'fill-color': ['get', 'color'],
+                        'fill-opacity': 0.42
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'risk-outline',
+                    'type': 'line',
+                    'source': 'forecast-data',
+                    'filter': ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                    'paint': {
+                        'line-color': ['get', 'color'],
+                        'line-width': 2
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'risk-severe-outline',
+                    'type': 'line',
+                    'source': 'forecast-data',
+                    'filter': ['==', ['coalesce', ['get', 'isSevere'], false], true],
+                    'paint': {
+                        'line-color': '#111111',
+                        'line-width': 3
+                    }
+                });
+                applyForecastLayerVisibility();
+
+                const bounds = new mapboxgl.LngLatBounds();
+                geoJSON.features.forEach(feature => {
+                    if (feature.geometry.type === 'Polygon') {
+                        feature.geometry.coordinates[0].forEach(coord => bounds.extend(coord));
+                    } else if (feature.geometry.type === 'MultiPolygon') {
+                        feature.geometry.coordinates.forEach(polygon => {
+                            polygon[0].forEach(coord => bounds.extend(coord));
+                        });
+                    }
+                });
+                if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 50 });
+
+                if (lightningToggle.checked) {
+                    ensureUkLightningLayer()
+                        .then(() => scheduleUkLightningRefresh())
+                        .catch(error => {
+                            console.error('UK lightning load error:', error);
+                            setLightningStatus('UK lightning feed unavailable', 'error');
+                        });
+                } else {
+                    setLightningStatus('UK lightning hidden', 'off');
+                }
+                initHocoRuns();
+            });
+        }
+
+        async function attemptLocalPosterRender(data, geoJSON) {
+            if (!window.GenWeatherUtils?.renderForecastPosterPng) {
+                posterStatus.textContent = 'Poster generator not available on this page. Re-publish from Admin to create the archived poster.';
+                return;
+            }
+
+            try {
+                const posterArtifact = await window.GenWeatherUtils.renderForecastPosterPng(geoJSON, {
+                    validFrom: data.validFrom,
+                    validTo: data.validTo,
+                    issuedAt: data.issuedAt || data.validFrom,
+                    issueVersion: data.issueVersion || 1,
+                    mapboxToken: MAPBOX_TOKEN
+                });
+
+                const response = await fetch(posterArtifact.dataUrl);
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+
+                posterPreviewImg.onload = () => {
+                    posterStatus.textContent = 'Poster PNG generated locally for preview (not synced to archive storage).';
+                    posterPreviewShell.hidden = false;
+                };
+                posterPreviewImg.onerror = () => {
+                    posterStatus.textContent = 'Poster PNG generated locally but could not be displayed.';
+                    posterPreviewShell.hidden = true;
+                };
+
+                posterPreviewShell.hidden = false;
+                posterPreviewImg.src = objectUrl;
+
+                posterLinkBtn.hidden = false;
+                posterLinkBtn.href = objectUrl;
+                posterLinkBtn.target = '_blank';
+                posterLinkBtn.rel = 'noopener';
+                posterLinkBtn.download = posterArtifact.fileName;
+
+                window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+            } catch (error) {
+                console.error('Local poster render failed.', error);
+                posterStatus.textContent = 'Could not generate the poster PNG locally. Re-publish or update from Admin to regenerate the archived poster.';
+                posterPreviewShell.hidden = true;
+                posterLinkBtn.hidden = true;
+            }
+        }
+
+        refreshForecastsBadge();
+        fetchForecast();
+    </script>
+    <script>
+(function () {
+    const toggle = document.querySelector('.nav-toggle');
+    const nav    = document.querySelector('.top-nav');
+    if (!toggle || !nav) return;
+
+    toggle.addEventListener('click', function () {
+        const open = nav.classList.toggle('nav-open');
+        this.setAttribute('aria-expanded', String(open));
+    });
+
+    // Close the menu if user taps a nav link (nice on mobile)
+    nav.querySelectorAll('.nav-left a').forEach(function (link) {
+        link.addEventListener('click', function () {
+            nav.classList.remove('nav-open');
+            toggle.setAttribute('aria-expanded', 'false');
+        });
+    });
+})();
+</script>
+</body>
+
+</html>

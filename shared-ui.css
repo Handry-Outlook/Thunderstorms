@@ -1,0 +1,402 @@
+:root {
+    --primary-blue: #2c6092;
+    --nav-bg: #1a2a44;
+    --nav-hover: rgba(255, 255, 255, 0.12);
+    --page-bg: #f4f7fa;
+    --panel-bg: #ffffff;
+    --panel-border: #d9e3ef;
+    --text-main: #1f2937;
+    --text-muted: #64748b;
+    --danger: #da2128;
+    --success: #10b981;
+    --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.08);
+    --risk-1: #67c6ac;
+    --risk-2: #ffea00;
+    --risk-3: #ff7a21;
+    --risk-4: #f91522;
+    --risk-5: #b23cc7;
+    --risk-severe: #111111;
+    --risk-6: #111111;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--page-bg);
+    color: var(--text-main);
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+.top-nav {
+    background: var(--nav-bg);
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    min-height: 50px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.nav-left {
+    display: flex;
+    align-items: stretch;
+    min-height: 50px;
+}
+
+.nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+    padding-right: 16px;
+    margin-right: 4px;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.nav-brand img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    padding: 2px;
+}
+
+.nav-brand span {
+    font-size: 14px;
+    letter-spacing: 0.01em;
+}
+
+.nav-left a,
+.nav-icon-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    min-height: 50px;
+    color: rgba(255, 255, 255, 0.82);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.nav-left a:first-child {
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-left a:hover,
+.nav-left a.active,
+.nav-icon-link:hover,
+.nav-icon-link.active {
+    background: var(--nav-hover);
+    color: #fff;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.nav-icon-link {
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.badge {
+    background: var(--danger);
+    color: #fff;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.badge:empty {
+    display: none;
+}
+
+.page-shell {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 20px 48px;
+}
+
+.page-panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 18px;
+    box-shadow: var(--shadow-soft);
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.page-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary-blue);
+}
+
+.page-title {
+    margin: 10px 0 0;
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.05;
+    color: #172033;
+}
+
+.page-subtitle {
+    margin: 12px 0 0;
+    max-width: 760px;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.action-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.icon-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: var(--danger);
+    color: #fff;
+    padding: 12px 18px;
+    font-weight: 700;
+}
+
+.btn-primary:hover {
+    background: #b81b22;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #1e293b;
+    color: #fff;
+    padding: 12px 18px;
+    font-weight: 700;
+}
+
+.btn-secondary:hover {
+    background: #0f172a;
+    transform: translateY(-1px);
+}
+
+.btn-ghost,
+.icon-action-btn {
+    background: #fff;
+    color: #334155;
+    border-color: #cbd5e1;
+    padding: 11px 16px;
+    font-weight: 600;
+}
+
+.btn-ghost:hover,
+.icon-action-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #eef4fb;
+    color: var(--primary-blue);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+@media (max-width: 900px) {
+    .top-nav {
+        padding: 0 10px;
+    }
+
+    .nav-brand span {
+        font-size: 13px;
+    }
+
+    .nav-left a,
+    .nav-icon-link {
+        padding: 0 12px;
+        font-size: 13px;
+    }
+
+    .page-shell {
+        padding: 20px 14px 36px;
+    }
+}
+
+/* ── Mobile toggle button (hidden on desktop) ── */
+.nav-toggle {
+    display: none;
+}
+
+@media (max-width: 720px) {
+
+    /* Top bar: brand stretches, then admin icon + toggle button on the right */
+    .top-nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 0;
+        min-height: auto;
+        align-items: stretch;
+        justify-content: flex-start;
+    }
+
+    .nav-brand {
+        flex: 1 1 auto;
+        min-height: 52px;
+        padding: 0 16px;
+        margin-right: 0;
+        border-right: none;
+    }
+
+    .nav-brand img {
+        width: 28px;
+        height: 28px;
+    }
+
+    .nav-brand span {
+        font-size: 15px;
+    }
+
+    /* Admin + toggle sit on the right of the brand row */
+    .nav-right {
+        display: flex;
+        align-items: stretch;
+        flex-shrink: 0;
+    }
+
+    .nav-icon-link {
+        min-height: 52px;
+        padding: 0 16px;
+        border-right: none;
+    }
+
+    /* Chevron toggle button */
+    .nav-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        width: 52px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.82);
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s ease, color 0.2s ease;
+        flex-shrink: 0;
+    }
+
+    .nav-toggle:hover,
+    .top-nav.nav-open .nav-toggle {
+        background: var(--nav-hover);
+        color: #fff;
+    }
+
+    /* Rotate chevron when open */
+    .nav-toggle i {
+        transition: transform 0.25s ease;
+    }
+
+    .top-nav.nav-open .nav-toggle i {
+        transform: rotate(180deg);
+    }
+
+    /* Nav links: hidden by default, expand downward when open */
+    .nav-left {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        order: 99; /* pushes below brand row */
+        overflow: hidden;
+        max-height: 0;
+        transition: max-height 0.28s ease, border-color 0.28s ease;
+        border-top: 0px solid rgba(255, 255, 255, 0.1);
+        min-height: 0;
+    }
+
+    .top-nav.nav-open .nav-left {
+        max-height: 400px; /* large enough for any link count */
+        border-top-width: 1px;
+    }
+
+    .nav-left a {
+        width: 100%;
+        min-height: 50px;
+        padding: 0 20px;
+        font-size: 14px;
+        font-weight: 600;
+        border-right: none;
+        border-left: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .nav-left a:first-child {
+        border-left: none;
+    }
+
+    .nav-left a:last-child {
+        border-bottom: none;
+    }
+
+    .nav-left a.active {
+        background: var(--nav-hover);
+        border-left: 3px solid rgba(255, 255, 255, 0.5);
+        padding-left: 17px;
+    }
+
+    .badge {
+        padding: 3px 8px;
+        font-size: 10px;
+    }
+}
