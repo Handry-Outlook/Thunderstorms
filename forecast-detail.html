@@ -733,35 +733,59 @@
                     geojsonData = await fallback.json();
                 }
 
-            // ── 3. Firebase / GCS Storage URL — re-generate a fresh signed URL ──────
-            //    Old signed URLs expire; getDownloadURL() produces a fresh one from the
-            //    storage path, which is all that's needed for archived HOCO runs.
+            // ── 3. Firebase / GCS Storage URL — re-generate a fresh download URL ────
+            //    Stored URLs are signed tokens that expire after ~1 week. We extract
+            //    the storage object path and call getDownloadURL() to get a fresh URL.
+            //    Falls back to fetching the original URL if path extraction fails, and
+            //    tries the legacy appspot bucket if the primary bucket 404s.
             } else if (run.geojsonUrl) {
                 let fetchUrl = run.geojsonUrl;
 
                 if (fetchUrl.includes('firebasestorage.googleapis.com') || fetchUrl.includes('storage.googleapis.com')) {
+                    // Extract the object path from the URL.
+                    // firebasestorage.googleapis.com format:
+                    //   /v0/b/<bucket>/o/<encoded-path>?token=...
+                    let storagePath = '';
                     try {
-                        let storagePath = '';
                         const urlObj = new URL(fetchUrl);
-                        if (fetchUrl.includes('firebasestorage.googleapis.com')) {
-                            const pathPart = urlObj.pathname.split('/o/')[1];
-                            if (pathPart) storagePath = decodeURIComponent(pathPart);
+                        const oSegment = urlObj.pathname.split('/o/')[1];
+                        if (oSegment) {
+                            // Strip any query params that leaked into the pathname
+                            storagePath = decodeURIComponent(oSegment.split('?')[0]);
+                        }
+                    } catch (_) { /* malformed URL — storagePath stays '' */ }
+
+                    if (storagePath) {
+                        // Try primary bucket first, then legacy appspot bucket as fallback
+                        const bucketsToTry = [hocoStorage];
+                        const legacyBucketName = 'hoco-3b23e.appspot.com';
+                        const primaryBucketName = 'hoco-3b23e.firebasestorage.app';
+                        if (!fetchUrl.includes(legacyBucketName)) {
+                            // If the stored URL points to the new bucket, also try legacy
+                            bucketsToTry.push(getStorage(hocoApp, `gs://${legacyBucketName}`));
                         } else {
-                            const parts = urlObj.pathname.split('/');
-                            if (parts.length > 2) storagePath = decodeURIComponent(parts.slice(2).join('/'));
+                            // Stored URL is legacy bucket — also try new bucket
+                            bucketsToTry.push(getStorage(hocoApp, `gs://${primaryBucketName}`));
                         }
-                        if (storagePath) {
-                            storagePath = storagePath.split('?')[0];
-                            fetchUrl = await getDownloadURL(storageRef(hocoStorage, storagePath));
+
+                        let refreshed = false;
+                        for (const bucket of bucketsToTry) {
+                            try {
+                                fetchUrl = await getDownloadURL(storageRef(bucket, storagePath));
+                                refreshed = true;
+                                break;
+                            } catch (storageErr) {
+                                console.warn(`HOCO getDownloadURL failed (${storageErr?.code || storageErr?.message}) for run ${run.id}, path "${storagePath}" — trying next bucket.`);
+                            }
                         }
-                    } catch (storageErr) {
-                        console.warn('Could not refresh HOCO storage URL for', run.id, storageErr);
-                        // fetchUrl stays as the original; the fetch below will surface any real error
+                        if (!refreshed) {
+                            console.warn(`HOCO: all getDownloadURL attempts failed for run ${run.id}. Will attempt fetch with original URL.`);
+                        }
                     }
                 }
 
                 const response = await fetch(fetchUrl);
-                if (!response.ok) throw new Error(`Could not fetch HOCO GeoJSON (${response.status}).`);
+                if (!response.ok) throw new Error(`Could not fetch HOCO GeoJSON (HTTP ${response.status}) for run ${run.id}.`);
                 geojsonData = await response.json();
 
             } else {
