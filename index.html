@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Thunderstorm Outlook & Radar</title>
-
+    <link rel="icon" type="image/png"
+        href="https://raw.githubusercontent.com/Handry-Outlook/Convective-Outlook/main/Handry_outlook_icon_pride_small.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="shared-ui.css">
@@ -18,6 +19,15 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="forecast-utils.js"></script>
 
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ME7TBBFFFN"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'G-ME7TBBFFFN');
+    </script>
     <style>
         /* --- RESET & VARIABLES --- */
         * {
@@ -54,7 +64,7 @@
             list-style: none;
         }
 
-        
+
 
         /* --- HERO SECTION --- */
         .hero {
@@ -2935,28 +2945,28 @@
 
         updateLayerToggleButtons();
         setForecastMode('official');
-        
+
     </script>
     <script>
-(function () {
-    const toggle = document.querySelector('.nav-toggle');
-    const nav    = document.querySelector('.top-nav');
-    if (!toggle || !nav) return;
+        (function () {
+            const toggle = document.querySelector('.nav-toggle');
+            const nav = document.querySelector('.top-nav');
+            if (!toggle || !nav) return;
 
-    toggle.addEventListener('click', function () {
-        const open = nav.classList.toggle('nav-open');
-        this.setAttribute('aria-expanded', String(open));
-    });
+            toggle.addEventListener('click', function () {
+                const open = nav.classList.toggle('nav-open');
+                this.setAttribute('aria-expanded', String(open));
+            });
 
-    // Close the menu if user taps a nav link (nice on mobile)
-    nav.querySelectorAll('.nav-left a').forEach(function (link) {
-        link.addEventListener('click', function () {
-            nav.classList.remove('nav-open');
-            toggle.setAttribute('aria-expanded', 'false');
-        });
-    });
-})();
-</script>
+            // Close the menu if user taps a nav link (nice on mobile)
+            nav.querySelectorAll('.nav-left a').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    nav.classList.remove('nav-open');
+                    toggle.setAttribute('aria-expanded', 'false');
+                });
+            });
+        })();
+    </script>
 </body>
 
 </html>
