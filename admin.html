@@ -4755,12 +4755,12 @@
                 }
 
                 // If we just published from a KML draft doc, remove the draft from Firestore
-                // so it no longer appears as a confusing stale entry in the history list.
+                // BEFORE calling resetForm() so the onSnapshot never briefly shows both the
+                // new published doc AND the stale draft at the same time (which caused users
+                // to click "Publish now" on the draft, creating a duplicate active doc).
                 const supersededDraftId = currentEditingDocId && currentEditingData?.isDraft
                     ? currentEditingDocId
                     : null;
-
-                resetForm();
 
                 if (supersededDraftId) {
                     try {
@@ -4769,6 +4769,8 @@
                         console.warn('Could not remove superseded KML draft after publish.', err);
                     }
                 }
+
+                resetForm();
             } catch (error) {
                 console.error(error);
                 showStatus(error.message, 'var(--accent)');
@@ -4888,6 +4890,7 @@
                         const kmlIcon = (data.importedByKml || (Array.isArray(data.importedFiles) && data.importedFiles.length))
                             ? `<span class="kml-badge" title="Imported from KML"><i class="fas fa-file-import"></i></span>`
                             : '';
+                        const isTrueDraft = !!data.isDraft && !data.isActive;
                         item.innerHTML = `
                             <div class="history-meta">
                                 <span>${new Date(data.createdAt).toLocaleDateString('en-GB')}</span>
@@ -4899,8 +4902,8 @@
                             <div class="history-title">${data.authorEmail || 'Forecast Desk'} - ${version}</div>
                             <div class="history-detail">Valid from ${String(data.validFrom || '').replace('T', ' ')}</div>
                             <div class="history-detail">Updated ${new Date(data.updatedAt || data.createdAt).toLocaleString('en-GB')}</div>
-                            <button class="publish-btn ${data.isActive ? 'is-active' : ''}">
-                                ${data.isActive ? 'Published' : 'Publish now'}
+                            <button class="publish-btn ${data.isActive ? 'is-active' : ''}" ${isTrueDraft ? 'style="background:#fef9c3;color:#854d0e;border-color:#fde047;"' : ''}>
+                                ${isTrueDraft ? '⚠ Draft – load to publish' : (data.isActive ? 'Published' : 'Publish now')}
                             </button>
                         `;
 
@@ -4909,9 +4912,23 @@
                             loadToEdit(id, data);
                         });
 
-                        item.querySelector('.publish-btn').addEventListener('click', async event => {
+                        item.querySelector('.publish-btn').addEventListener('click', async function(event) {
                             event.stopPropagation();
-                            await togglePublish(id, !data.isActive);
+                            // True drafts must be published through the editor.
+                            // Load the draft into the editor so the user can then hit "Publish Outlook".
+                            if (isTrueDraft) {
+                                loadToEdit(id, data);
+                                showStatus('Draft loaded — review then click "Publish Outlook".', '#1d4ed8');
+                                return;
+                            }
+                            const btn = event.currentTarget;
+                            const currentlyActive = btn.classList.contains('is-active');
+                            btn.disabled = true;
+                            try {
+                                await togglePublish(id, !currentlyActive);
+                            } finally {
+                                btn.disabled = false;
+                            }
                         });
 
                         historyList.appendChild(item);
