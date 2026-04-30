@@ -547,13 +547,36 @@
             border: 1px solid #cbd5e1;
             background: linear-gradient(90deg,
                     #ffffff 0%,
+                    #d0cece 1%,
                     #d0cece 5%,
+                    #bea497 5%,
                     #bea497 10%,
-                    #66c2a4 30%,
-                    #fff200 50%,
-                    #ff7f27 70%,
-                    #ec1c24 85%,
-                    #b83dba 100%);
+                    #66c2a4 10%,
+                    #66c2a4 20%,
+                    #b3ff00 20%,
+                    #b3ff00 30%,
+                    #fff200 30%,
+                    #fff200 40%,
+                    #ffb327 40%,
+                    #ffb327 50%,
+                    #ff7f27 50%,
+                    #ff7f27 60%,
+                    #ff5227 60%,
+                    #ff5227 65%,
+                    #ff2e27 65%,
+                    #ff2e27 70%,
+                    #ec1c24 70%,
+                    #ec1c24 75%,
+                    #ec1c5a 75%,
+                    #ec1c5a 80%,
+                    #b83dba 80%,
+                    #b83dba 85%,
+                    #5a099c 85%,
+                    #5a099c 90%,
+                    #3e00e9 90%,
+                    #3e00e9 95%,
+                    #2600ff 95%,
+                    #2600ff 100%);
         }
 
         .admin-hoco-legend-labels {
@@ -860,7 +883,7 @@
         .btn-kml-override-clear:hover {
             background: #fee2e2;
             color: #b91c1c;
-            border-color: rgba(185,28,28,0.3);
+            border-color: rgba(185, 28, 28, 0.3);
         }
 
         .kml-meta-card.has-detected-date {
@@ -1281,10 +1304,14 @@
                     <div>
                         <label for="kml-issued-override">Override Issue / Update Time</label>
                         <div class="kml-issuance-override-row">
-                            <input type="datetime-local" id="kml-issued-override" title="Manually set the issuance or last-updated time for this KML draft">
-                            <button type="button" class="btn-kml-override-clear" id="kml-override-clear-btn" title="Clear override and revert to auto-detected time"><i class="fas fa-xmark"></i> Clear</button>
+                            <input type="datetime-local" id="kml-issued-override"
+                                title="Manually set the issuance or last-updated time for this KML draft">
+                            <button type="button" class="btn-kml-override-clear" id="kml-override-clear-btn"
+                                title="Clear override and revert to auto-detected time"><i class="fas fa-xmark"></i>
+                                Clear</button>
                         </div>
-                        <div class="section-note" style="margin-top:6px;">Leave blank to use the auto-detected date from the KML content or file metadata. Setting a value here overrides both.</div>
+                        <div class="section-note" style="margin-top:6px;">Leave blank to use the auto-detected date from
+                            the KML content or file metadata. Setting a value here overrides both.</div>
                     </div>
                     <div class="kml-meta-grid">
                         <div class="kml-meta-card">
@@ -1442,7 +1469,8 @@
                         draft</button>
                     <button type="button" class="btn-ghost btn-danger" id="delete-forecast" disabled><i
                             class="fas fa-trash"></i> Delete forecast</button>
-                    <button type="button" class="btn-secondary" id="export-png"><i class="fas fa-file-export"></i> Export
+                    <button type="button" class="btn-secondary" id="export-png"><i class="fas fa-file-export"></i>
+                        Export
                         PNG</button>
                 </div>
                 <!-- Single publish button — shown for new drafts and KML drafts -->
@@ -1608,11 +1636,11 @@
         const KML_IMPORT_DEFAULT_STATUS = 'Batch KML import reads placemark names as risk levels and saves the result as a local draft.';
         mapboxgl.accessToken = 'pk.eyJ1IjoiaGFuZHJ5MjAxOTEwMjYiLCJhIjoiY21jYWg2eG1lMDNkYTJxczVyOWM5bW9mciJ9.bA-qxiByTB_RseY1fgU4rg';
         const MAP_STYLES = [
-            { id: 'handry',    label: 'Handry',    url: `https://api.mapbox.com/styles/v1/handry20191026/cmd7aol1800u401s9g60ibz29?access_token=${mapboxgl.accessToken}` },
-            { id: 'light',     label: 'Light',     url: 'mapbox://styles/mapbox/light-v11' },
-            { id: 'dark',      label: 'Dark',      url: 'mapbox://styles/mapbox/dark-v11' },
+            { id: 'handry', label: 'Handry', url: `https://api.mapbox.com/styles/v1/handry20191026/cmd7aol1800u401s9g60ibz29?access_token=${mapboxgl.accessToken}` },
+            { id: 'light', label: 'Light', url: 'mapbox://styles/mapbox/light-v11' },
+            { id: 'dark', label: 'Dark', url: 'mapbox://styles/mapbox/dark-v11' },
             { id: 'satellite', label: 'Satellite', url: 'mapbox://styles/mapbox/satellite-streets-v12' },
-            
+
         ];
         let currentMapStyleIndex = 0;
         const UK_LIGHTNING_FEED_URLS = Object.freeze({
@@ -1719,7 +1747,7 @@
         let pendingLocalDraftRestore = false;
         let adminMapReady = false;
 
-        
+
 
         const draw = new MapboxDraw({
             displayControlsDefault: false,
@@ -2323,10 +2351,6 @@
             }
         }
 
-        function getHocoLightningColor(value) {
-            return window.GenWeatherUtils?.getHocoLightningColor?.(value) || '#66c2a4';
-        }
-
         function getHocoProbabilityLabel(value) {
             const numeric = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
             return `${numeric}% lightning`;
@@ -2339,7 +2363,7 @@
                     const riskValue = window.GenWeatherUtils?.parseRiskPercent
                         ? window.GenWeatherUtils.parseRiskPercent(feature?.properties)
                         : Number(feature?.properties?.risk || feature?.properties?.peak_risk || 0);
-                    const hocoColor = getHocoLightningColor(riskValue || feature?.properties?.peak_risk || 0);
+                    const hocoColor = window.GenWeatherUtils.getHocoLightningColor(riskValue);
                     return {
                         ...feature,
                         properties: {
@@ -2504,7 +2528,7 @@
                     type: 'fill',
                     source: sourceId,
                     paint: {
-                        'fill-color': ['coalesce', ['get', 'fill'], ['get', 'color'], '#38bdf8'],
+                        'fill-color': window.GenWeatherUtils.buildHocoColorExpression('riskValue'),
                         'fill-opacity': fillOpacity
                     }
                 }, firstSymbol?.id);
@@ -2515,7 +2539,7 @@
                     type: 'line',
                     source: sourceId,
                     paint: {
-                        'line-color': ['coalesce', ['get', 'fill'], ['get', 'color'], '#ffffff'],
+                        'line-color': window.GenWeatherUtils.buildHocoColorExpression('riskValue'),
                         'line-width': lineWidth,
                         'line-opacity': 0.92
                     }
@@ -3128,7 +3152,7 @@
             // draft or a published forecast. For drafts, "Update" saves changes to the
             // draft without publishing; "Publish" issues a new live version.
             const isPublishedEdit = editing && data && !data.isDraft;
-            const isEditingAny   = editing && !!currentEditingDocId;
+            const isEditingAny = editing && !!currentEditingDocId;
 
             if (isEditingAny) {
                 // Hide the single publish button, show the split row
@@ -4083,27 +4107,27 @@
                 function rr(ring) { return ring.map(rc); }
                 function rp(coords) { return coords.map(rr); }
                 switch (geometry.type) {
-                    case 'Polygon':         return { ...geometry, coordinates: rp(geometry.coordinates) };
-                    case 'MultiPolygon':    return { ...geometry, coordinates: geometry.coordinates.map(rp) };
-                    case 'LineString':      return { ...geometry, coordinates: geometry.coordinates.map(rc) };
+                    case 'Polygon': return { ...geometry, coordinates: rp(geometry.coordinates) };
+                    case 'MultiPolygon': return { ...geometry, coordinates: geometry.coordinates.map(rp) };
+                    case 'LineString': return { ...geometry, coordinates: geometry.coordinates.map(rc) };
                     case 'MultiLineString': return { ...geometry, coordinates: geometry.coordinates.map(rr) };
-                    case 'Point':           return { ...geometry, coordinates: rc(geometry.coordinates) };
-                    default:                return geometry;
+                    case 'Point': return { ...geometry, coordinates: rc(geometry.coordinates) };
+                    default: return geometry;
                 }
             }
 
             const rawFeatures = buildRawDisplayFeatures(features).map(feature => {
-                const isSevere  = !!feature.properties?.isSevere;
-                const rawColor  = feature.properties?.color || '#cccccc';
-                const hexFill   = isSevere ? '#cccccc' : toHex(rawColor, '#cccccc');
+                const isSevere = !!feature.properties?.isSevere;
+                const rawColor = feature.properties?.color || '#cccccc';
+                const hexFill = isSevere ? '#cccccc' : toHex(rawColor, '#cccccc');
                 const hexStroke = isSevere ? '#111111' : toHex(rawColor, '#cccccc');
                 return {
                     type: 'Feature',
                     geometry: feature.geometry,
                     properties: {
-                        fill:           hexFill,
+                        fill: hexFill,
                         'fill-opacity': isSevere ? 0 : 0.24,
-                        stroke:         hexStroke,
+                        stroke: hexStroke,
                         'stroke-width': isSevere ? 4.8 : 4
                     }
                 };
@@ -4121,17 +4145,17 @@
             // tolerance is in degrees (~0.001° ≈ 111m). highQuality:false uses the faster
             // Radial Distance algorithm which is sufficient for poster thumbnail rendering.
             const attempts = [
-                { tolerance: 0,     dp: 5 },
-                { tolerance: 0,     dp: 4 },
-                { tolerance: 0,     dp: 3 },
+                { tolerance: 0, dp: 5 },
+                { tolerance: 0, dp: 4 },
+                { tolerance: 0, dp: 3 },
                 { tolerance: 0.001, dp: 4 },
                 { tolerance: 0.005, dp: 3 },
-                { tolerance: 0.01,  dp: 3 },
-                { tolerance: 0.05,  dp: 2 },
-                { tolerance: 0.1,   dp: 2 },
-                { tolerance: 0.25,  dp: 2 },
-                { tolerance: 0.5,   dp: 1 },
-                { tolerance: 1.0,   dp: 1 },
+                { tolerance: 0.01, dp: 3 },
+                { tolerance: 0.05, dp: 2 },
+                { tolerance: 0.1, dp: 2 },
+                { tolerance: 0.25, dp: 2 },
+                { tolerance: 0.5, dp: 1 },
+                { tolerance: 1.0, dp: 1 },
             ];
 
             for (const { tolerance, dp } of attempts) {
@@ -4145,7 +4169,7 @@
                                     { tolerance, highQuality: false, mutate: false }
                                 );
                                 geom = simplified.geometry;
-                            } catch (_) {}
+                            } catch (_) { }
                         }
                         return { ...f, geometry: truncateCoords(geom, dp) };
                     });
@@ -4155,7 +4179,7 @@
                     if (encodeURIComponent(JSON.stringify(fc)).length <= POSTER_URL_BUDGET) {
                         return fc; // caller does its own JSON.stringify + encodeURIComponent
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
 
             // Nothing fit — return null so the caller falls back to the vector poster renderer
@@ -4599,13 +4623,13 @@
 
             const now = new Date().toISOString();
             const isPublishedEdit = currentEditingDocId && !currentEditingData?.isDraft;
-            const isDraftEdit     = currentEditingDocId && !!currentEditingData?.isDraft;
+            const isDraftEdit = currentEditingDocId && !!currentEditingData?.isDraft;
 
             if (mode === 'update' && (isPublishedEdit || isDraftEdit)) {
                 // ── UPDATE MODE ────────────────────────────────────────────────────────
                 // For published forecasts: patch content + timestamps, keep issueVersion.
                 // For drafts: save edits back to the draft doc without publishing.
-                const keepVersion  = currentEditingData?.issueVersion || 1;
+                const keepVersion = currentEditingData?.issueVersion || 1;
                 const keepIssuedAt = currentEditingData?.issuedAt || currentEditingData?.createdAt || now;
                 const maxRank = Math.max(...draftGeoJSON.features.map(f => f.properties.rank || 0));
 
@@ -4928,7 +4952,7 @@
                             loadToEdit(id, data);
                         });
 
-                        item.querySelector('.publish-btn').addEventListener('click', async function(event) {
+                        item.querySelector('.publish-btn').addEventListener('click', async function (event) {
                             event.stopPropagation();
                             // True drafts must be published through the editor.
                             // Load the draft into the editor so the user can then hit "Publish Outlook".
@@ -5049,12 +5073,12 @@
         document.getElementById('fit-map-btn').addEventListener('click', () => fitMapToFeatures(draw.getAll().features));
 
         // ─── Map style switcher ───────────────────────────────────────────────────────
-        const mapStyleBtn  = document.getElementById('map-style-btn');
+        const mapStyleBtn = document.getElementById('map-style-btn');
         const mapStyleMenu = document.getElementById('map-style-menu');
         const mapStyleLabel = document.getElementById('map-style-label');
 
         // Style dot colours used in the menu
-        const STYLE_DOTS = {  handry: '#da2128' ,light: '#e2e8f0', dark: '#334155', satellite: '#0ea5e9'};
+        const STYLE_DOTS = { handry: '#da2128', light: '#e2e8f0', dark: '#334155', satellite: '#0ea5e9' };
 
         function buildMapStyleMenu() {
             mapStyleMenu.innerHTML = '';

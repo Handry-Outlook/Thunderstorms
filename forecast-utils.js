@@ -16,16 +16,25 @@
     const HOCO_LIGHTNING_COLORS = [
         "#ffffff", "#d0cece", "#d0cece", "#d0cece", "#d0cece", "#bea497", "#bea497", "#bea497", "#bea497", "#bea497",
         "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4",
-        "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4", "#66c2a4",
+        "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00", "#b3ff00",
         "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200",
-        "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200", "#fff200",
+        "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327", "#ffb327",
         "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27",
-        "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27", "#ff7f27",
-        "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24",
-        "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba",
-        "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba"
-    ];
-
+        "#ff5227", "#ff5227", "#ff5227", "#ff5227", "#ff5227", "#ff2e27", "#ff2e27", "#ff2e27", "#ff2e27", "#ff2e27",
+        "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c24", "#ec1c5a", "#ec1c5a", "#ec1c5a", "#ec1c5a", "#ec1c5a",
+        "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#b83dba", "#5a099c", "#5a099c", "#5a099c", "#5a099c", "#5a099c",
+        "#3e00e9", "#3e00e9", "#3e00e9", "#3e00e9", "#3e00e9", "#2600ff", "#2600ff", "#2600ff", "#2600ff", "#2600ff",
+    ]
+    function buildHocoColorExpression(property) {
+        var prop = property || 'riskValue';
+        var stops = getHocoLightningGradientStops();
+        // ['step', input, default_output, threshold, output, threshold, output, ...]
+        var expr = ['step', ['coalesce', ['get', prop], 0], stops[0].color];
+        for (var i = 1; i < stops.length; i++) {
+            expr.push(stops[i].value, stops[i].color);
+        }
+        return expr;
+    }
     function clone(value) {
         return JSON.parse(JSON.stringify(value));
     }
@@ -998,7 +1007,7 @@
         height: 5016,
         radius: 42
     });
-    
+
     const POSTER_TEXT_LAYOUT = Object.freeze({
         valid: {
             x: 520,
@@ -1438,6 +1447,7 @@
         formatUtc: formatUtc,
         wrapCanvasText: wrapCanvasText,
         slugify: slugify,
+        buildHocoColorExpression: buildHocoColorExpression,
         renderForecastPosterPng: renderForecastPosterPng
     };
 })();
