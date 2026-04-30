@@ -4863,19 +4863,18 @@
                     entries.push({ id: docSnap.id, data: docSnap.data() });
                 });
 
-                // Hide a draft only when that specific version has already been published.
-                // A draft is considered superseded when a non-draft entry exists with the
-                // same validFrom AND the same issueVersion (i.e. this exact draft was published).
-                const publishedKeys = new Set(
+                // Hide drafts for any outlook window that already has a published version.
+                // Group entries by validFrom; if any entry in a group is published (isActive=true
+                // and not a draft), remove all draft entries from that group.
+                const publishedWindows = new Set(
                     entries
-                        .filter(entry => !entry.data?.isDraft && entry.data?.isActive)
-                        .map(entry => `${entry.data?.validFrom}__${entry.data?.issueVersion ?? 1}`)
+                        .filter(entry => entry.data?.isActive && !entry.data?.isDraft)
+                        .map(entry => entry.data?.validFrom)
                         .filter(Boolean)
                 );
                 const dedraftedEntries = entries.filter(entry => {
                     if (!entry.data?.isDraft) return true;
-                    const key = `${entry.data?.validFrom}__${entry.data?.issueVersion ?? 1}`;
-                    return !publishedKeys.has(key);
+                    return !publishedWindows.has(entry.data?.validFrom);
                 });
 
                 const filteredEntries = filter === 'mine'
