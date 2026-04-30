@@ -4863,9 +4863,24 @@
                     entries.push({ id: docSnap.id, data: docSnap.data() });
                 });
 
+                // Hide a draft only when that specific version has already been published.
+                // A draft is considered superseded when a non-draft entry exists with the
+                // same validFrom AND the same issueVersion (i.e. this exact draft was published).
+                const publishedKeys = new Set(
+                    entries
+                        .filter(entry => !entry.data?.isDraft && entry.data?.isActive)
+                        .map(entry => `${entry.data?.validFrom}__${entry.data?.issueVersion ?? 1}`)
+                        .filter(Boolean)
+                );
+                const dedraftedEntries = entries.filter(entry => {
+                    if (!entry.data?.isDraft) return true;
+                    const key = `${entry.data?.validFrom}__${entry.data?.issueVersion ?? 1}`;
+                    return !publishedKeys.has(key);
+                });
+
                 const filteredEntries = filter === 'mine'
-                    ? entries.filter(entry => entry.data?.authorUid === currentUser.uid)
-                    : entries;
+                    ? dedraftedEntries.filter(entry => entry.data?.authorUid === currentUser.uid)
+                    : dedraftedEntries;
 
                 const compareValues = (a, b) => {
                     if (sortField === 'maxRiskRank') {
