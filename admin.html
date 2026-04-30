@@ -3607,18 +3607,14 @@
                     duplicateSkippedFiles.push(entry.fileName || 'Unknown KML');
                     continue;
                 }
-                const newestExistingIssuedAt = matchResult?.newestIssuedAt || null;
-                const newestExistingVersion = matchResult?.newestIssueVersion || 0;
-                const importedIssuedAtMs = new Date(issuedAtForCompare).getTime();
-                const existingIssuedAtMs = newestExistingIssuedAt ? new Date(newestExistingIssuedAt).getTime() : NaN;
-                // importedIsNewer: true only when both timestamps are valid AND imported is strictly newer.
-                const importedIsNewer = !Number.isNaN(importedIssuedAtMs)
-                    && (Number.isNaN(existingIssuedAtMs) || importedIssuedAtMs > existingIssuedAtMs);
-                // Always assign a version at least one above the current highest in Firebase,
-                // regardless of whether we can compare issuance timestamps. This prevents every
-                // import from landing on v1 when the existing highest version is already v2+.
-                const baseVersion = Math.max(1, newestExistingVersion);
-                const suggestedVersion = matchResult?.hasMatches ? baseVersion + 1 : 1;
+                // Assign a chronologically correct draft version using the same logic
+                // that saveForecast uses at publish time. This ensures the history list
+                // shows v1/v2 in the right order even before anything is published.
+                // matchResult includes both drafts and published docs (excludeDrafts=false)
+                // so that each KML in a multi-file batch gets a distinct slot.
+                const existingIssuedAts = matchResult?.allIssuedAts || [];
+                const suggestedVersion = resolveVersionForIssuedAt(issuedAtForCompare, existingIssuedAts);
+                const importedIsNewer = suggestedVersion > (matchResult?.newestIssueVersion || 0);
 
                 await autoSaveImportedKmlDraftToFirebase({
                     issueVersion: suggestedVersion,
@@ -3636,8 +3632,21 @@
             if (latestImportedEntry?.features?.length) {
                 fitMapToFeatures(latestImportedEntry.features);
             }
-            persistDraftLocally();
             kmlBatchInput.value = '';
+
+            // Clear the editor after the batch — all KML drafts are saved in Firestore
+            // and visible in the history list. The forecaster must explicitly click
+            // the one they want to publish; the editor must not silently retain
+            // whichever file happened to be last in the loop.
+            currentEditingDocId = null;
+            currentEditingData = null;
+            draw.deleteAll();
+            clearImportedDraftMetadata();
+            clearLocalDraft();
+            setEditorMode(false);
+            updateLayerStackUI();
+            refreshDrawPreview();
+            updateKmlImportMeta();
 
             const importWarnings = [];
             if (!primaryWindow) {
@@ -3657,6 +3666,38 @@
             const successMessage = `Imported ${filesWithFeatures.length} KML file${filesWithFeatures.length === 1 ? '' : 's'} as ${savedCount} separate draft forecast${savedCount === 1 ? '' : 's'} (${newerCount} newer than existing matches).${importWarnings.length ? ` ${importWarnings.join(' ')}` : ''}`;
             setKmlImportStatus(successMessage);
             showStatus(`${savedCount} KML draft forecast${savedCount === 1 ? '' : 's'} saved.`, 'var(--success)');
+        }
+
+        // Assigns a chronologically-correct version number to a new forecast.
+        // Instead of simply doing "max + 1" (which breaks when publishing out of order),
+        // this slots the candidate's issuedAt into a sorted list of all existing
+        // issuance timestamps and returns its 1-based position.
+        //
+        // existingIssuedAts: array of ISO strings from already-stored forecasts (any mix
+        //                    of drafts and published — callers decide what to include).
+        // candidateIssuedAt: the new forecast's issuedAt (may be null/unknown).
+        //
+        // Examples (existing = [T1, T3], candidate = T2)  → returns 2
+        //          (existing = [T1, T2], candidate = T3)  → returns 3
+        //          (existing = [T2, T3], candidate = T1)  → returns 1   ← out-of-order publish
+        //          (existing = [T1],     candidate = null) → returns 2  ← unknown date, append last
+        function resolveVersionForIssuedAt(candidateIssuedAt, existingIssuedAts) {
+            const existing = (existingIssuedAts || [])
+                .map(ts => new Date(ts).getTime())
+                .filter(ms => !Number.isNaN(ms));
+
+            const candidateMs = candidateIssuedAt ? new Date(candidateIssuedAt).getTime() : NaN;
+
+            if (!existing.length) return 1;
+
+            if (Number.isNaN(candidateMs)) {
+                // Unknown issuance time — append after all known ones
+                return existing.length + 1;
+            }
+
+            // Build sorted unique list of all timestamps including the candidate
+            const all = [...new Set([...existing, candidateMs])].sort((a, b) => a - b);
+            return all.indexOf(candidateMs) + 1;
         }
 
         async function detectExistingForecastForWindow(validFromValue, validToValue, { excludeDrafts = false } = {}) {
@@ -3695,7 +3736,8 @@
                 .filter(Boolean)
                 .map(data => ({
                     issuedAt: data.issuedAt || data.updatedAt || data.createdAt || null,
-                    issueVersion: Number(data.issueVersion) || 1
+                    issueVersion: Number(data.issueVersion) || 1,
+                    isDraft: !!data.isDraft
                 }));
 
             // Track the latest issuance time and the highest version independently —
@@ -3706,10 +3748,19 @@
 
             const highestVersion = mapped.reduce((max, entry) => Math.max(max, entry.issueVersion), 0);
 
+            // allIssuedAts: chronologically sorted list of issuedAt values across ALL matched docs
+            // (drafts + published). Used by resolveVersionForIssuedAt() to place new forecasts
+            // into the correct version slot regardless of publish order.
+            const allIssuedAts = mapped
+                .filter(entry => entry.issuedAt)
+                .map(entry => entry.issuedAt)
+                .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
             return {
                 hasMatches: true,
                 newestIssuedAt: newestByTime?.issuedAt || null,
                 newestIssueVersion: highestVersion,
+                allIssuedAts,
                 matches
             };
         }
@@ -4557,17 +4608,28 @@
             // ── PUBLISH NEW VERSION / NEW DRAFT MODE ───────────────────────────────
             const issuedAt = getDraftIssuedAtValue(now);
 
-            // Resolve the correct version against Firebase so we always land one above
-            // the current highest version for this validity window.
+            // Resolve the chronologically correct version for this forecast.
+            //
+            // We query ALL docs for the window (drafts + published) so that:
+            //   • Publishing v1 after v2 has already been published still yields v1
+            //     (it slots into the earlier issuedAt position).
+            //   • Multiple KML drafts from the same batch each got distinct suggestedVersion
+            //     values at import time — we honour that ordering here.
+            //
+            // NOTE: We no longer use excludeDrafts:true here. The old "excludeDrafts" approach
+            // caused every publish to land on v1 when the only existing records were drafts.
             let issueVersion;
             try {
-                const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value, { excludeDrafts: true });
-                const existingHighest = windowMatch?.newestIssueVersion || 0;
-                if (windowMatch?.hasMatches) {
-                    issueVersion = existingHighest + 1;
-                } else {
-                    issueVersion = 1;
-                }
+                const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                // allIssuedAts contains the issuedAt of every doc currently in Firebase
+                // for this window (the current draft being published is NOT in this list yet).
+                const existingIssuedAts = (windowMatch?.allIssuedAts || [])
+                    .filter(ts => {
+                        // Exclude the issuedAt of the draft we are currently publishing so it
+                        // does not count itself as an existing slot.
+                        return ts !== issuedAt;
+                    });
+                issueVersion = resolveVersionForIssuedAt(issuedAt, existingIssuedAts);
             } catch (err) {
                 console.warn('Could not query existing forecasts for version check; falling back.', err);
                 issueVersion = getNextIssueVersion();
