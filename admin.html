@@ -3124,25 +3124,40 @@
             const deleteButton = document.getElementById('delete-forecast');
             const versionNote = document.getElementById('version-context-note');
 
-            // Only show the split row when editing a published (non-draft) forecast.
-            // For new drafts and KML drafts the single "Publish Outlook" button is enough.
+            // Show the split row whenever an existing doc is loaded — whether it's a
+            // draft or a published forecast. For drafts, "Update" saves changes to the
+            // draft without publishing; "Publish" issues a new live version.
             const isPublishedEdit = editing && data && !data.isDraft;
+            const isEditingAny   = editing && !!currentEditingDocId;
 
-            if (isPublishedEdit) {
+            if (isEditingAny) {
                 // Hide the single publish button, show the split row
                 saveBtn.style.display = 'none';
                 splitRow.classList.add('is-visible');
 
-                // Build a short context line: "Existing v3 · 29/04/2026"
-                const existingVersion = data.issueVersion || 1;
-                const issuedDate = data.issuedAt || data.updatedAt || data.createdAt || null;
-                const dateStr = issuedDate
-                    ? new Date(issuedDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                    : '—';
-                versionNote.innerHTML =
-                    `<strong>Currently loaded:</strong> v${existingVersion} · issued ${dateStr}<br>` +
-                    `<strong>Update Outlook</strong> — fix typos/small changes, keeps the same version.<br>` +
-                    `<strong>Publish as New Version</strong> — new issuance, increments to v${existingVersion + 1}.`;
+                if (isPublishedEdit) {
+                    // Existing published forecast — Update keeps version, New Version increments
+                    const existingVersion = data.issueVersion || 1;
+                    const issuedDate = data.issuedAt || data.updatedAt || data.createdAt || null;
+                    const dateStr = issuedDate
+                        ? new Date(issuedDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                        : '—';
+                    versionNote.innerHTML =
+                        `<strong>Currently loaded:</strong> v${existingVersion} · issued ${dateStr}<br>` +
+                        `<strong>Update Outlook</strong> — fix typos/small changes, keeps the same version.<br>` +
+                        `<strong>Publish as New Version</strong> — new issuance, increments to v${existingVersion + 1}.`;
+                    document.getElementById('update-forecast').innerHTML = '<i class="fas fa-floppy-disk"></i> Update Outlook';
+                    document.getElementById('publish-new-version').innerHTML = '<i class="fas fa-bullhorn"></i> Publish as New Version';
+                } else {
+                    // KML draft loaded from history — Update saves draft changes; Publish issues it
+                    const draftVersion = data.issueVersion || 1;
+                    versionNote.innerHTML =
+                        `<strong>Editing draft</strong> v${draftVersion} (not yet published).<br>` +
+                        `<strong>Update Draft</strong> — save edits back to this draft without publishing.<br>` +
+                        `<strong>Publish Outlook</strong> — issue this draft as a live forecast.`;
+                    document.getElementById('update-forecast').innerHTML = '<i class="fas fa-floppy-disk"></i> Update Draft';
+                    document.getElementById('publish-new-version').innerHTML = '<i class="fas fa-bullhorn"></i> Publish Outlook';
+                }
             } else {
                 // New draft mode: single publish button
                 saveBtn.style.display = '';
@@ -3516,6 +3531,8 @@
             let latestImportedEntry = null;
             const duplicateSkippedFiles = [];
             const noDateFiles = []; // files where no issuance date could be determined
+            // In-memory set to catch within-batch duplicates before Firestore propagates
+            const savedSignaturesThisBatch = new Set();
 
             // Capture any manual override the forecaster typed BEFORE the import loop begins.
             // This value is stable for the entire batch — it is not updated mid-loop.
@@ -3594,6 +3611,15 @@
                 const issuedAtForCompare = draftIssuedAtOverride || null;
                 const matchResult = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
                 const kmlSignature = buildKmlEntrySignature(entry);
+
+                // Guard against within-batch duplicates: Firestore writes from earlier
+                // iterations haven't propagated to the snapshot yet, so the Firestore
+                // duplicate check below would miss them. Catch them in-memory first.
+                if (savedSignaturesThisBatch.has(kmlSignature)) {
+                    duplicateSkippedFiles.push(entry.fileName || 'Unknown KML');
+                    continue;
+                }
+
                 const duplicateMatch = (matchResult?.matches || []).find(match => {
                     const data = match?.data || {};
                     if (data.kmlSignature && data.kmlSignature === kmlSignature) return true;
@@ -3623,6 +3649,8 @@
                     existingMatch: matchResult,
                     kmlSignature
                 });
+
+                savedSignaturesThisBatch.add(kmlSignature);
 
                 if (importedIsNewer) newerCount += 1;
                 savedCount += 1;
@@ -4571,32 +4599,38 @@
 
             const now = new Date().toISOString();
             const isPublishedEdit = currentEditingDocId && !currentEditingData?.isDraft;
+            const isDraftEdit     = currentEditingDocId && !!currentEditingData?.isDraft;
 
-            if (mode === 'update' && isPublishedEdit) {
+            if (mode === 'update' && (isPublishedEdit || isDraftEdit)) {
                 // ── UPDATE MODE ────────────────────────────────────────────────────────
-                // Patch the existing doc: update content + timestamps but keep issueVersion
-                // and issuedAt unchanged. This is intended for small post-publish fixes.
-                const keepVersion = currentEditingData?.issueVersion || 1;
+                // For published forecasts: patch content + timestamps, keep issueVersion.
+                // For drafts: save edits back to the draft doc without publishing.
+                const keepVersion  = currentEditingData?.issueVersion || 1;
                 const keepIssuedAt = currentEditingData?.issuedAt || currentEditingData?.createdAt || now;
                 const maxRank = Math.max(...draftGeoJSON.features.map(f => f.properties.rank || 0));
 
-                showStatus('Updating outlook...', '#1d4ed8');
+                showStatus(isDraftEdit ? 'Updating draft...' : 'Updating outlook...', '#1d4ed8');
                 try {
                     await updateDoc(doc(db, 'forecasts_v2', currentEditingDocId), {
                         geoJSON: JSON.stringify(draftGeoJSON),
                         validFrom: validFromInput.value,
                         validTo: validToInput.value,
                         description: forecastText.value,
-                        isActive: currentEditingData?.isActive ?? true,
+                        isActive: currentEditingData?.isActive ?? !isDraftEdit,
                         authorEmail: currentUser.email,
                         authorUid: currentUser.uid,
                         forecaster: getForecasterName(),
                         issuedAt: keepIssuedAt,
                         issueVersion: keepVersion,
                         maxRiskRank: maxRank,
-                        updatedAt: now    // updatedAt tracks when the last edit happened
+                        updatedAt: now
                     });
-                    showStatus(`Outlook updated (v${keepVersion} — no new version issued).`, 'var(--success)');
+                    showStatus(
+                        isDraftEdit
+                            ? `Draft updated (v${keepVersion} — not yet published).`
+                            : `Outlook updated (v${keepVersion} — no new version issued).`,
+                        'var(--success)'
+                    );
                     resetForm();
                 } catch (error) {
                     console.error('Update failed.', error);
