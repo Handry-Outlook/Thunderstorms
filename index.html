@@ -2866,9 +2866,23 @@
         function initForecasts() {
             onSnapshot(collection(db, "forecasts_v2"), (snapshot) => {
                 allFeatures = [];
+
+                // Group docs by validFrom date key; keep only the highest issueVersion per date
+                const bestByDate = new Map();
                 snapshot.forEach((doc) => {
                     const data = doc.data();
                     if (data.isActive === false) return;
+                    const dateKey = data.validFrom
+                        ? String(data.validFrom).split('T')[0]
+                        : doc.id;
+                    const existing = bestByDate.get(dateKey);
+                    const thisVersion = Number(data.issueVersion) || 1;
+                    if (!existing || thisVersion > existing.version) {
+                        bestByDate.set(dateKey, { doc, data, version: thisVersion });
+                    }
+                });
+
+                bestByDate.forEach(({ doc, data }) => {
                     try {
                         const geoJSON = typeof data.geoJSON === 'string' ? JSON.parse(data.geoJSON) : data.geoJSON;
                         if (geoJSON.features) {
@@ -2895,7 +2909,8 @@
                                         description: data.description,
                                         issuedAt: data.issuedAt,
                                         validFrom: data.validFrom,
-                                        validTo: data.validTo
+                                        validTo: data.validTo,
+                                        issueVersion: Number(data.issueVersion) || 1
                                     }
                                 });
                             });
