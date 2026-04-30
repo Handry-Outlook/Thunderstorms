@@ -4653,8 +4653,9 @@
             // NOTE: We no longer use excludeDrafts:true here. The old "excludeDrafts" approach
             // caused every publish to land on v1 when the only existing records were drafts.
             let issueVersion;
+            let windowMatch;
             try {
-                const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
                 // allIssuedAts contains the issuedAt of every doc currently in Firebase
                 // for this window (the current draft being published is NOT in this list yet).
                 const existingIssuedAts = (windowMatch?.allIssuedAts || [])
@@ -4668,6 +4669,31 @@
                 console.warn('Could not query existing forecasts for version check; falling back.', err);
                 issueVersion = getNextIssueVersion();
             }
+
+            // ── DUPLICATE VERSION GUARD ────────────────────────────────────────────────
+            // Block the publish if a non-draft doc with the same validFrom + issueVersion
+            // already exists in Firestore. This prevents accidentally publishing the same
+            // version twice (e.g. double-clicking Publish, or re-submitting a stale draft).
+            // We skip this check when the user is updating the doc in-place (mode='update').
+            const duplicateVersionDoc = (windowMatch?.matches || []).find(match => {
+                const d = match?.data || {};
+                return !d.isDraft
+                    && Number(d.issueVersion) === issueVersion
+                    && match.id !== currentEditingDocId;   // allow re-publish of the same doc via "New Version"
+            });
+            if (duplicateVersionDoc) {
+                const dupDate = duplicateVersionDoc.data?.issuedAt || duplicateVersionDoc.data?.createdAt || '';
+                const dupDateStr = dupDate ? new Date(dupDate).toLocaleString('en-GB') : 'unknown date';
+                showStatus(`v${issueVersion} already published for this window.`, 'var(--accent)');
+                alert(
+                    `Cannot publish: Version ${issueVersion} for this forecast window already exists\n` +
+                    `(issued ${dupDateStr}).\n\n` +
+                    `Use "Publish as New Version" to issue a higher version, or load the existing\n` +
+                    `record from the history panel and use "Update Outlook" to correct it.`
+                );
+                return;
+            }
+            // ── END DUPLICATE VERSION GUARD ────────────────────────────────────────────
 
             const maxRank = Math.max(...draftGeoJSON.features.map(feature => feature.properties.rank || 0));
             let posterArtifact = null;
