@@ -958,8 +958,45 @@
             word-break: break-word;
         }
 
+        .draft-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #fef9c3;
+            color: #854d0e;
+            border: 1px solid #fde047;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            flex-shrink: 0;
+        }
+
+        .new-outlook-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn-save-draft {
+            padding: 15px 16px;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            background: #fff;
+            color: #334155;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .btn-save-draft:hover {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+        }
+
         .btn-save {
-            width: 100%;
             padding: 15px 16px;
             border: none;
             border-radius: 14px;
@@ -1474,11 +1511,15 @@
                         Export
                         PNG</button>
                 </div>
-                <!-- Single publish button — shown for new drafts and KML drafts -->
-                <button class="btn-save" id="save-forecast"><i class="fas fa-bullhorn"></i> Publish Outlook</button>
+                <!-- New-outlook actions: shown for new (unsaved) drafts only -->
+                <div class="new-outlook-actions" id="new-outlook-actions">
+                    <button type="button" class="btn-save-draft" id="save-draft"><i class="fas fa-floppy-disk"></i> Save Draft</button>
+                    <button class="btn-save" id="save-forecast"><i class="fas fa-bullhorn"></i> Publish Outlook</button>
+                </div>
                 <!-- Split row — shown only when editing an existing published forecast -->
                 <div class="publish-split-row" id="publish-split-row">
                     <div class="version-context-note" id="version-context-note"></div>
+                    <button type="button" class="btn-save-draft" id="save-as-draft" style="display:none; grid-column: 1 / -1;"><i class="fas fa-floppy-disk"></i> Save as New Draft</button>
                     <button type="button" class="btn-update" id="update-forecast">
                         <i class="fas fa-floppy-disk"></i> Update Outlook
                     </button>
@@ -3144,24 +3185,23 @@
         function setEditorMode(editing, data) {
             document.getElementById('editor-title').textContent = editing ? 'Edit Outlook' : 'New Outlook';
 
-            const saveBtn = document.getElementById('save-forecast');
+            const newOutlookActions = document.getElementById('new-outlook-actions');
             const splitRow = document.getElementById('publish-split-row');
+            const saveAsDraftBtn = document.getElementById('save-as-draft');
             const deleteButton = document.getElementById('delete-forecast');
             const versionNote = document.getElementById('version-context-note');
 
-            // Show the split row whenever an existing doc is loaded — whether it's a
-            // draft or a published forecast. For drafts, "Update" saves changes to the
-            // draft without publishing; "Publish" issues a new live version.
             const isPublishedEdit = editing && data && !data.isDraft;
             const isEditingAny = editing && !!currentEditingDocId;
 
             if (isEditingAny) {
-                // Hide the single publish button, show the split row
-                saveBtn.style.display = 'none';
+                // Hide the new-outlook actions, show the split row
+                newOutlookActions.style.display = 'none';
                 splitRow.classList.add('is-visible');
 
                 if (isPublishedEdit) {
                     // Existing published forecast — Update keeps version, New Version increments
+                    // Also show Save as Draft to let the forecaster stage a modified copy
                     const existingVersion = data.issueVersion || 1;
                     const issuedDate = data.issuedAt || data.updatedAt || data.createdAt || null;
                     const dateStr = issuedDate
@@ -3169,27 +3209,27 @@
                         : '—';
                     versionNote.innerHTML =
                         `<strong>Currently loaded:</strong> v${existingVersion} · issued ${dateStr}<br>` +
-                        `<strong>Update Outlook</strong> — fix typos/small changes, keeps the same version.<br>` +
+                        `<strong>Save as New Draft</strong> — stage your changes as a draft (v${existingVersion + 1}) without touching the live forecast.<br>` +
+                        `<strong>Update Outlook</strong> — fix typos/small changes in-place, keeps the same version.<br>` +
                         `<strong>Publish as New Version</strong> — new issuance, increments to v${existingVersion + 1}.`;
+                    saveAsDraftBtn.style.display = '';
                     document.getElementById('update-forecast').innerHTML = '<i class="fas fa-floppy-disk"></i> Update Outlook';
                     document.getElementById('publish-new-version').innerHTML = '<i class="fas fa-bullhorn"></i> Publish as New Version';
                 } else {
-                    // KML draft loaded from history — Update saves draft changes; Publish issues it
+                    // Draft loaded from history — Update saves draft changes; Publish issues it
                     const draftVersion = data.issueVersion || 1;
                     versionNote.innerHTML =
                         `<strong>Editing draft</strong> v${draftVersion} (not yet published).<br>` +
                         `<strong>Update Draft</strong> — save edits back to this draft without publishing.<br>` +
                         `<strong>Publish Outlook</strong> — issue this draft as a live forecast.`;
+                    saveAsDraftBtn.style.display = 'none';
                     document.getElementById('update-forecast').innerHTML = '<i class="fas fa-floppy-disk"></i> Update Draft';
                     document.getElementById('publish-new-version').innerHTML = '<i class="fas fa-bullhorn"></i> Publish Outlook';
                 }
             } else {
-                // New draft mode: single publish button
-                saveBtn.style.display = '';
+                // New draft mode: show both Save Draft + Publish Outlook buttons
+                newOutlookActions.style.display = '';
                 splitRow.classList.remove('is-visible');
-                saveBtn.innerHTML = editing
-                    ? '<i class="fas fa-bullhorn"></i> Publish Outlook'
-                    : '<i class="fas fa-bullhorn"></i> Publish Outlook';
             }
 
             if (deleteButton) {
@@ -4802,6 +4842,79 @@
             }
         }
 
+        async function saveDraftForecast() {
+            if (!validFromInput.value || !validToInput.value) {
+                showStatus('Set valid from/to dates before saving a draft.', 'var(--accent)');
+                return;
+            }
+
+            const draftGeoJSON = createDraftGeoJSON();
+            const now = new Date().toISOString();
+            const issuedAt = getDraftIssuedAtValue(now);
+            const maxRank = draftGeoJSON?.features?.length
+                ? Math.max(...draftGeoJSON.features.map(f => Number(f?.properties?.rank) || 0))
+                : 0;
+
+            // ── Resolve the correct issue version ─────────────────────────────────────
+            // The history panel hides any draft whose validFrom + issueVersion already
+            // matches a published entry. Hardcoding v1 means the draft disappears the
+            // moment a published v1 exists for the same window (e.g. today's default).
+            //
+            // • Branching from a published outlook → next version after the loaded doc.
+            // • Brand new draft → query Firebase to find the highest published version
+            //   for the window and use the next slot, falling back to 1 if none exist.
+            // ──────────────────────────────────────────────────────────────────────────
+            const isFromPublished = currentEditingDocId && currentEditingData && !currentEditingData.isDraft;
+            let baseVersion = 1;
+
+            if (isFromPublished) {
+                baseVersion = (currentEditingData.issueVersion || 1) + 1;
+            } else {
+                try {
+                    const windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
+                    if (windowMatch?.hasMatches) {
+                        baseVersion = (windowMatch.newestIssueVersion || 0) + 1;
+                    }
+                } catch (err) {
+                    console.warn('Could not detect existing version for draft; defaulting to v1.', err);
+                }
+            }
+
+            showStatus('Saving draft...', '#1d4ed8');
+            try {
+                const payload = {
+                    geoJSON: JSON.stringify(draftGeoJSON),
+                    validFrom: validFromInput.value,
+                    validTo: validToInput.value,
+                    description: forecastText.value,
+                    isActive: false,
+                    isDraft: true,
+                    importedByKml: false,
+                    importedTitle: importedDraftTitle || '',
+                    importedFiles: importedDraftFiles.slice(),
+                    authorEmail: currentUser.email,
+                    authorUid: currentUser.uid,
+                    forecaster: getForecasterName(),
+                    issuedAt: issuedAt,
+                    issueVersion: baseVersion,
+                    maxRiskRank: maxRank,
+                    updatedAt: now,
+                    createdAt: now
+                };
+                const docRef = await addDoc(collection(db, 'forecasts_v2'), payload);
+                currentEditingDocId = docRef.id;
+                currentEditingData = payload;
+                setEditorMode(true, payload);
+                // Ensure the history panel reflects the new draft immediately
+                initHistoryListener();
+                const sourceNote = isFromPublished ? ` (branched from published v${baseVersion - 1})` : '';
+                showStatus(`Draft saved as v${baseVersion}${sourceNote} — review thoroughly before publishing.`, 'var(--success)');
+            } catch (error) {
+                console.error('Draft save failed.', error);
+                showStatus(error.message, 'var(--accent)');
+            }
+        }
+
         async function exportForecastPng() {
             const draftGeoJSON = createDraftGeoJSON();
             const validationErrors = validateDraftGeoJSON(draftGeoJSON);
@@ -4936,6 +5049,7 @@
                             <div class="history-meta">
                                 <span>${new Date(data.createdAt).toLocaleDateString('en-GB')}</span>
                                 <span style="display:flex; align-items:center; gap:8px;">
+                                    ${isTrueDraft ? `<span class="draft-pill"><i class="fas fa-pen-to-square"></i> Draft</span>` : ''}
                                     ${kmlIcon}
                                     <span class="risk-badge">Max ${data.maxRiskRank || 0}</span>
                                 </span>
@@ -5064,6 +5178,8 @@
             }
         });
 
+        document.getElementById('save-draft').addEventListener('click', saveDraftForecast);
+        document.getElementById('save-as-draft').addEventListener('click', saveDraftForecast);
         document.getElementById('save-forecast').addEventListener('click', () => saveForecast('new'));
         document.getElementById('update-forecast').addEventListener('click', () => saveForecast('update'));
         document.getElementById('publish-new-version').addEventListener('click', () => saveForecast('new'));
