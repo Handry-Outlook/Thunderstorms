@@ -122,10 +122,10 @@
             <span>Handry Outlook</span>
         </a>
         <nav class="nav-left" aria-label="Primary">
-            <a href="index.html">Outlooks <span class="badge" id="outlook-count">Live</span></a>
-            <a href="obs.html" class="active">Observations</a>
+            <a href="index.html">Outlooks </a>
+            <a href="obs.html">Observations <span class="badge" id="outlook-count">Live</span></a>
             <a href="forecasts.html">Forecasts <span class="badge" id="forecasts-count">0</span></a>
-            <a href="hoco.html">HOCO</a>
+            <a href="hoco.html"class="active">HOCO</a>
             <a href="archive.html">Archive</a>
         </nav>
         <div class="nav-right">
@@ -197,6 +197,13 @@
             } catch (error) {
                 badge.textContent = '?';
             }
+            const now = new Date();
+            const futureCount = new Set(allFeatures
+                .filter(f => new Date(f.properties.validTo) >= now)
+                .map(f => f.properties.docId)
+            ).size;
+            outlookBadge.textContent = futureCount;
+            if (forecastsBadge) forecastsBadge.textContent = futureCount;
         }
 
         refreshForecastsBadge();
