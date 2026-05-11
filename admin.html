@@ -4709,26 +4709,20 @@
 
             // Resolve the chronologically correct version for this forecast.
             //
-            // We query ALL docs for the window (drafts + published) so that:
+            // We query only PUBLISHED docs (excludeDrafts:true) so that:
+            //   • A draft being published is never counted as an existing version slot,
+            //     which previously caused "publish a draft → lands on v2" (bug).
             //   • Publishing v1 after v2 has already been published still yields v1
             //     (it slots into the earlier issuedAt position).
-            //   • Multiple KML drafts from the same batch each got distinct suggestedVersion
-            //     values at import time — we honour that ordering here.
-            //
-            // NOTE: We no longer use excludeDrafts:true here. The old "excludeDrafts" approach
-            // caused every publish to land on v1 when the only existing records were drafts.
+            //   • Out-of-order KML publishes are still handled correctly: if v1 and v3
+            //     are already published, T2 naturally slots into position 2.
             let issueVersion;
             let windowMatch;
             try {
-                windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value);
-                // allIssuedAts contains the issuedAt of every doc currently in Firebase
-                // for this window (the current draft being published is NOT in this list yet).
-                const existingIssuedAts = (windowMatch?.allIssuedAts || [])
-                    .filter(ts => {
-                        // Exclude the issuedAt of the draft we are currently publishing so it
-                        // does not count itself as an existing slot.
-                        return ts !== issuedAt;
-                    });
+                windowMatch = await detectExistingForecastForWindow(validFromInput.value, validToInput.value, { excludeDrafts: true });
+                // allIssuedAts contains the issuedAt of every PUBLISHED doc for this window.
+                // The draft being published is not in this list, so no extra filtering needed.
+                const existingIssuedAts = windowMatch?.allIssuedAts || [];
                 issueVersion = resolveVersionForIssuedAt(issuedAt, existingIssuedAts);
             } catch (err) {
                 console.warn('Could not query existing forecasts for version check; falling back.', err);
