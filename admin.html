@@ -1389,6 +1389,13 @@
                             <input type="date" id="hoco-admin-date">
                             <div class="admin-hoco-window" id="hoco-admin-window">Waiting for the selected 06:00 to
                                 next-day 05:59 forecast window.</div>
+                            <label for="hoco-admin-region" style="margin-top:12px;">Region</label>
+                            <select id="hoco-admin-region">
+                                <option value="England">England</option>
+                                <option value="Scotland">Scotland</option>
+                                <option value="Germany">Germany</option>
+                                <option value="Poland">Poland</option>
+                            </select>
                         </div>
 
                         <div class="admin-hoco-card">
@@ -1774,6 +1781,24 @@
         let adminHocoUnsubscribe = null;
         let adminHocoRuns = [];
         let adminVisibleHocoRuns = [];
+
+        // All known HOCO regions. A run matches the selected region if its `region`
+        // field exactly matches the chosen value (case-insensitive). Runs with a
+        // blank or missing `region` are treated as legacy England/UK runs and only
+        // match when England is selected.
+        const adminHocoRegionSelect = document.getElementById('hoco-admin-region');
+        let adminSelectedHocoRegion = adminHocoRegionSelect ? adminHocoRegionSelect.value : 'England';
+
+        function adminRunMatchesRegion(run, selectedRegion) {
+            const r = String(run?.region ?? '').trim().toLowerCase();
+            const target = String(selectedRegion ?? '').trim().toLowerCase();
+            if (!target) return true;
+            if (!r) return target === 'england' || target === 'uk'; // blank = legacy England/UK run
+            if (r === 'uk') return target === 'england' || target === 'uk';
+            if (target === 'england' && r.startsWith('england')) return true;
+            return r === target;
+        }
+
         let adminSelectedHocoRunId = null;
         let adminSelectedHocoWindow = null;
         let adminActiveHocoAutoGeojson = null;
@@ -2476,6 +2501,7 @@
 
             return adminHocoRuns
                 .filter(run => run.type === 'automated')
+                .filter(run => adminRunMatchesRegion(run, adminSelectedHocoRegion))
                 .filter(run => {
                     const weather = String(run.weather || '').toLowerCase();
                     return !weather || weather.includes('lightning') || weather.includes('thunder');
@@ -4167,7 +4193,7 @@
                     geometry: feature.geometry,
                     properties: {
                         fill: hexFill,
-                        'fill-opacity': isSevere ? 0 : 0.24,
+                        'fill-opacity': isSevere ? 0 : 0.42,
                         stroke: hexStroke,
                         'stroke-width': isSevere ? 4.8 : 4
                     }
@@ -4380,7 +4406,7 @@
 
                 if (!isSevere) {
                     fallbackCtx.fillStyle = feature.properties?.color || '#94a3b8';
-                    fallbackCtx.globalAlpha = 0.28;
+                    fallbackCtx.globalAlpha = 0.42;
                     fallbackCtx.fill('evenodd');
                 }
 
@@ -5247,6 +5273,13 @@
             setAdminHocoWindow(getWindowFromDateValue(adminHocoDateInput.value));
             refreshAdminHocoForSelectedDay();
         });
+
+        if (adminHocoRegionSelect) {
+            adminHocoRegionSelect.addEventListener('change', () => {
+                adminSelectedHocoRegion = adminHocoRegionSelect.value;
+                refreshAdminHocoForSelectedDay();
+            });
+        }
 
         // KML issuance manual override: update the draft immediately when changed
         kmlIssuedOverrideInput.addEventListener('change', () => {
