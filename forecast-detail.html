@@ -547,6 +547,7 @@
         const posterStatus = document.getElementById('poster-status');
         const posterPreviewShell = document.getElementById('poster-preview-shell');
         const posterPreviewImg = document.getElementById('poster-preview-img');
+        let currentPosterObjectUrl = null;
         const lightningToggle = document.getElementById('lightningToggle');
         const forecastLayerToggle = document.getElementById('forecastLayerToggle');
         const lightningLayerSelect = document.getElementById('lightningLayer');
@@ -570,6 +571,7 @@
         const HOCO_ENSEMBLE_SOURCE_ID = 'forecast-detail-hoco-ensemble-source';
         const HOCO_ENSEMBLE_FILL_ID = 'forecast-detail-hoco-ensemble-fill';
         const HOCO_ENSEMBLE_LINE_ID = 'forecast-detail-hoco-ensemble-line';
+        const FORECAST_POLYGON_FILL_OPACITY = 0.42;
         const UK_LIGHTNING_LOOKBACK_MINUTES = 360;
         let map = null;
         let ukLightningStrikes = [];
@@ -609,6 +611,39 @@
         function setLightningStatus(message, tone = 'off') {
             lightningStatus.textContent = message;
             lightningStatus.className = `status-chip ${tone}`;
+        }
+
+        function revokeCurrentPosterObjectUrl() {
+            if (!currentPosterObjectUrl) return;
+            URL.revokeObjectURL(currentPosterObjectUrl);
+            currentPosterObjectUrl = null;
+        }
+
+        function showArchivedPosterPreview(data) {
+            if (!data?.posterUrl) return;
+            revokeCurrentPosterObjectUrl();
+            posterLinkBtn.hidden = false;
+            posterLinkBtn.href = data.posterUrl;
+            posterLinkBtn.target = '_blank';
+            posterLinkBtn.rel = 'noopener';
+            if (data.posterFileName) {
+                posterLinkBtn.download = data.posterFileName;
+            } else {
+                posterLinkBtn.removeAttribute('download');
+            }
+
+            posterPreviewShell.hidden = false;
+            posterPreviewImg.onload = () => {
+                posterStatus.textContent = 'Showing the archived poster from storage because local poster regeneration was unavailable.';
+                posterPreviewShell.hidden = false;
+            };
+            posterPreviewImg.onerror = () => {
+                posterStatus.textContent = 'Neither the local poster render nor the archived poster could be displayed.';
+                posterPreviewShell.hidden = true;
+                posterLinkBtn.hidden = true;
+                posterPreviewImg.removeAttribute('src');
+            };
+            posterPreviewImg.src = data.posterUrl;
         }
 
         function formatDateKey(date) {
@@ -837,10 +872,33 @@
             setVis('risk-severe-outline', visible);
         }
 
+        // This page is England-only (HOCO now supports multiple regions e.g. Germany,
+        // Poland, Scotland, but this page has not been upgraded with a region picker).
+        // All runs are fetched from Firestore, then filtered to England-only here
+        // before anything is passed to visibleHocoRuns or the slider.
+
+        // All known non-England HOCO regions. A run is excluded from the England
+        // slider if its `region` field exactly matches one of these (case-insensitive).
+        // Runs with a blank or missing `region` are kept — they are legacy England/UK runs.
+        const NON_ENGLAND_REGIONS = new Set(
+            ['Germany', 'Poland', 'Scotland', 'Wales', 'Ireland', 'France', 'Spain']
+                .map(r => r.toLowerCase())
+        );
+
+        function isEnglandRun(run) {
+            const r = String(run?.region ?? '').trim().toLowerCase();
+            if (!r) return true;                        // blank = legacy England/UK run
+            if (r === 'uk') return true;                // 'UK' always means England
+            if (r.startsWith('england')) return true;   // 'England', 'England South', etc.
+            if (NON_ENGLAND_REGIONS.has(r)) return false; // explicit non-England name
+            return false;                               // unknown region — exclude to be safe
+        }
+
         function getAutoRunsForSelectedWindow() {
             if (!selectedForecastWindow) return [];
             return hocoRuns
                 .filter(run => run.type === 'automated')
+                .filter(run => isEnglandRun(run))
                 .filter(run => {
                     const normalized = getNormalizedAutoValidPeriod(run);
                     return normalized && normalized.key === selectedForecastWindow.key;
@@ -962,9 +1020,9 @@
             if (hocoUnsubscribe) hocoUnsubscribe();
 
             // Query scoped to a ±2-day window around the forecast's valid date so that
-            // older forecasts (beyond a fixed limit) are always found. This mirrors how
-            // index.html queries by date rather than using a blanket limit(180) which
-            // silently excludes runs once the collection grows large enough.
+            // older forecasts (beyond a fixed limit) are always found.
+            // All runs are fetched here; region filtering happens in getAutoRunsForSelectedWindow()
+            // before anything is passed to visibleHocoRuns or the slider.
             const anchor = selectedForecastWindow?.start || forecastValidStart || new Date();
             const windowStart = new Date(anchor);
             windowStart.setDate(windowStart.getDate() - 2);
@@ -1367,36 +1425,13 @@
             document.getElementById('discussion-content').innerText = data.description;
 
             posterCard.hidden = false;
-            if (data.posterUrl) {
-                posterLinkBtn.hidden = false;
-                posterLinkBtn.href = data.posterUrl;
-                posterLinkBtn.target = '_blank';
-                posterLinkBtn.rel = 'noopener';
-                if (data.posterFileName) {
-                    posterLinkBtn.download = data.posterFileName;
-                }
-
-                posterStatus.textContent = 'Loading synced poster preview from archive storage.';
-                posterPreviewShell.hidden = false;
-                posterPreviewImg.onload = () => {
-                    posterStatus.textContent = 'This is the synced export image stored with the published outlook for archive use.';
-                    posterPreviewShell.hidden = false;
-                };
-                posterPreviewImg.onerror = () => {
-                    posterStatus.textContent = 'Poster PNG could not be loaded from storage. Attempting to generate it locally...';
-                    posterPreviewShell.hidden = true;
-                    posterLinkBtn.hidden = true;
-                    posterPreviewImg.removeAttribute('src');
-                    attemptLocalPosterRender(data, geoJSON);
-                };
-                posterPreviewImg.src = data.posterUrl;
-            } else {
-                posterLinkBtn.hidden = true;
-                posterPreviewShell.hidden = true;
-                posterPreviewImg.removeAttribute('src');
-                posterStatus.textContent = 'No synced poster PNG found. Generating it locally...';
-                attemptLocalPosterRender(data, geoJSON);
-            }
+            posterLinkBtn.hidden = true;
+            posterPreviewShell.hidden = true;
+            posterPreviewImg.removeAttribute('src');
+            posterStatus.textContent = data.posterUrl
+                ? 'Generating the poster locally so the preview matches the current forecast renderer...'
+                : 'No synced poster PNG found. Generating it locally...';
+            attemptLocalPosterRender(data, geoJSON);
 
             const displayFeatures = window.GenWeatherUtils
                 ? window.GenWeatherUtils.normalizeDisplayFeatures(geoJSON.features)
@@ -1426,7 +1461,7 @@
                     'filter': ['!=', ['coalesce', ['get', 'isSevere'], false], true],
                     'paint': {
                         'fill-color': ['get', 'color'],
-                        'fill-opacity': 0.42
+                        'fill-opacity': FORECAST_POLYGON_FILL_OPACITY
                     }
                 });
 
@@ -1646,15 +1681,47 @@
 
         // ── feature display normalisation ─────────────────────────────────────────
         function buildRawDisplayFeatures(features) {
-            return (features || [])
+            const rawFeatures = (features || [])
                 .filter(f => f?.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'))
                 .map(f => {
                     const props = f.properties || {};
                     const isSevere = !!(props.isSevere || props.severe || props.user_severe);
                     const color = props.color || props.user_color || '#94a3b8';
                     const rank  = Number(props.rank ?? props.user_rank ?? 0);
-                    return { ...f, properties: { ...props, color, isSevere, rank } };
+                    return {
+                        type: 'Feature',
+                        geometry: f.geometry,
+                        properties: {
+                            ...props,
+                            color,
+                            rank,
+                            risk: props.risk ?? props.user_risk,
+                            severe: isSevere,
+                            isSevere
+                        }
+                    };
                 });
+
+            return window.GenWeatherUtils
+                ? window.GenWeatherUtils.normalizeDisplayFeatures(rawFeatures)
+                : rawFeatures;
+        }
+
+        function buildPosterPreviewFeatures(features) {
+            return buildRawDisplayFeatures(features).map(feature => {
+                const isSevere = !!feature.properties?.isSevere;
+                const color = feature.properties?.color || '#94a3b8';
+                return {
+                    ...feature,
+                    properties: {
+                        ...feature.properties,
+                        fill: isSevere ? 'rgba(0,0,0,0)' : color,
+                        'fill-opacity': isSevere ? 0 : FORECAST_POLYGON_FILL_OPACITY,
+                        stroke: isSevere ? '#111111' : color,
+                        'stroke-width': isSevere ? 3 : 2
+                    }
+                };
+            });
         }
 
         // ── lightning helpers ─────────────────────────────────────────────────────
@@ -1742,7 +1809,7 @@
         }
 
         function buildPosterProjection(features, width, height, padding = 76) {
-            const displayFeatures = buildRawDisplayFeatures(features);
+            const displayFeatures = buildPosterPreviewFeatures(features);
             let minLng = Infinity, maxLng = -Infinity, minY = Infinity, maxY = -Infinity;
             const reg = ([lng, lat]) => {
                 if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
@@ -1803,12 +1870,20 @@
                 .slice().sort((a, b) => (a.properties?.isSevere ? 999 : a.properties?.rank || 0) - (b.properties?.isSevere ? 999 : b.properties?.rank || 0))
                 .forEach(f => {
                     const isSevere = !!f.properties?.isSevere;
+                    const fillOpacity = f.properties?.['fill-opacity'] ?? FORECAST_POLYGON_FILL_OPACITY;
+                    const strokeWidth = f.properties?.['stroke-width'] ?? (isSevere ? 3 : 2);
                     ctx.save(); ctx.beginPath();
                     traceProjectedGeometry(ctx, f.geometry, projection.project);
-                    if (!isSevere) { ctx.fillStyle = f.properties?.color || '#94a3b8'; ctx.globalAlpha = 0.28; ctx.fill('evenodd'); }
+                    if (!isSevere) {
+                        ctx.fillStyle = f.properties?.fill || f.properties?.color || '#94a3b8';
+                        ctx.globalAlpha = typeof fillOpacity === 'number' ? fillOpacity : FORECAST_POLYGON_FILL_OPACITY;
+                        ctx.fill('evenodd');
+                    }
                     ctx.globalAlpha = 1;
-                    ctx.strokeStyle = isSevere ? '#111111' : (f.properties?.color || '#94a3b8');
-                    ctx.lineWidth = isSevere ? 4.4 : 3.2; ctx.stroke(); ctx.restore();
+                    ctx.strokeStyle = f.properties?.stroke || (isSevere ? '#111111' : (f.properties?.color || '#94a3b8'));
+                    ctx.lineWidth = typeof strokeWidth === 'number' ? strokeWidth : (isSevere ? 3 : 2);
+                    ctx.stroke();
+                    ctx.restore();
                 });
 
             if (Array.isArray(options.lightningStrikes) && options.lightningStrikes.length) {
@@ -1835,11 +1910,21 @@
                     default: return geom;
                 }
             }
-            const rawFeatures = buildRawDisplayFeatures(features).map(f => {
+            const rawFeatures = buildPosterPreviewFeatures(features).map(f => {
                 const isSevere  = !!f.properties?.isSevere;
-                const hexFill   = isSevere ? '#cccccc' : toHex(f.properties?.color, '#cccccc');
-                const hexStroke = isSevere ? '#111111' : toHex(f.properties?.color, '#cccccc');
-                return { type: 'Feature', geometry: f.geometry, properties: { fill: hexFill, 'fill-opacity': isSevere ? 0 : 0.24, stroke: hexStroke, 'stroke-width': isSevere ? 4.8 : 4 } };
+                const fillOpacity = f.properties?.['fill-opacity'] ?? FORECAST_POLYGON_FILL_OPACITY;
+                const hexFill   = toHex(f.properties?.fill, isSevere ? '#cccccc' : toHex(f.properties?.color, '#cccccc'));
+                const hexStroke = toHex(f.properties?.stroke, isSevere ? '#111111' : toHex(f.properties?.color, '#cccccc'));
+                return {
+                    type: 'Feature',
+                    geometry: f.geometry,
+                    properties: {
+                        fill: hexFill,
+                        'fill-opacity': typeof fillOpacity === 'number' ? fillOpacity : FORECAST_POLYGON_FILL_OPACITY,
+                        stroke: hexStroke,
+                        'stroke-width': f.properties?.['stroke-width'] ?? (isSevere ? 3 : 2)
+                    }
+                };
             });
             const BUDGET = 7200;
             const attempts = [
@@ -1865,9 +1950,177 @@
             return null;
         }
 
+        function extendPosterMapBounds(bounds, geometry) {
+            if (!bounds || !geometry) return;
+            const register = coord => {
+                if (!Array.isArray(coord) || coord.length < 2) return;
+                const [lng, lat] = coord;
+                if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+                bounds.extend([lng, lat]);
+            };
+            if (geometry.type === 'Polygon') {
+                geometry.coordinates.forEach(ring => ring.forEach(register));
+            } else if (geometry.type === 'MultiPolygon') {
+                geometry.coordinates.forEach(polygon => polygon.forEach(ring => ring.forEach(register)));
+            }
+        }
+
+        function waitForMapboxIdle(renderMap, timeoutMs = 12000) {
+            return new Promise((resolve, reject) => {
+                let settled = false;
+                const timer = window.setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(new Error('Timed out while waiting for poster map render.'));
+                }, timeoutMs);
+
+                const cleanup = () => {
+                    window.clearTimeout(timer);
+                    renderMap.off('idle', onIdle);
+                    renderMap.off('error', onError);
+                };
+
+                const onIdle = () => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    resolve();
+                };
+
+                const onError = event => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(event?.error || new Error('Poster map render failed.'));
+                };
+
+                renderMap.on('idle', onIdle);
+                renderMap.on('error', onError);
+            });
+        }
+
+        async function renderPosterMapWithLiveMapbox(features, width, height) {
+            if (!window.mapboxgl?.Map) throw new Error('Mapbox GL JS is unavailable.');
+
+            const displayFeatures = buildPosterPreviewFeatures(features);
+            const maxRenderEdge = 1280;
+            const renderScale = Math.min(1, maxRenderEdge / Math.max(width, height, 1));
+            const renderWidth = Math.max(320, Math.round(width * renderScale));
+            const renderHeight = Math.max(320, Math.round(height * renderScale));
+            const renderPadding = Math.max(42, Math.round(Math.min(renderWidth, renderHeight) * 0.06));
+            const sourceId = 'poster-forecast-data';
+
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+
+            const host = document.createElement('div');
+            host.setAttribute('aria-hidden', 'true');
+            host.style.position = 'fixed';
+            host.style.left = '-10000px';
+            host.style.top = '0';
+            host.style.width = `${renderWidth}px`;
+            host.style.height = `${renderHeight}px`;
+            host.style.opacity = '0';
+            host.style.pointerEvents = 'none';
+            host.style.zIndex = '-1';
+            document.body.appendChild(host);
+
+            const renderMap = new mapboxgl.Map({
+                container: host,
+                style: 'mapbox://styles/handry20191026/cmd7aol1800u401s9g60ibz29',
+                center: [-2, 54.5],
+                zoom: 5.5,
+                interactive: false,
+                attributionControl: false,
+                fadeDuration: 0,
+                preserveDrawingBuffer: true
+            });
+
+            try {
+                await new Promise((resolve, reject) => {
+                    const onLoad = () => {
+                        renderMap.off('error', onError);
+                        resolve();
+                    };
+                    const onError = event => {
+                        renderMap.off('load', onLoad);
+                        reject(event?.error || new Error('Poster map style failed to load.'));
+                    };
+                    renderMap.once('load', onLoad);
+                    renderMap.once('error', onError);
+                });
+
+                renderMap.addSource(sourceId, {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: displayFeatures
+                    }
+                });
+
+                renderMap.addLayer({
+                    id: 'risk-fill',
+                    type: 'fill',
+                    source: sourceId,
+                    filter: ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                    paint: {
+                        'fill-color': ['get', 'color'],
+                        'fill-opacity': FORECAST_POLYGON_FILL_OPACITY
+                    }
+                });
+
+                renderMap.addLayer({
+                    id: 'risk-outline',
+                    type: 'line',
+                    source: sourceId,
+                    filter: ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                    paint: {
+                        'line-color': ['coalesce', ['get', 'stroke'], ['get', 'color']],
+                        'line-width': 2
+                    }
+                });
+
+                renderMap.addLayer({
+                    id: 'risk-severe-outline',
+                    type: 'line',
+                    source: sourceId,
+                    filter: ['==', ['coalesce', ['get', 'isSevere'], false], true],
+                    paint: {
+                        'line-color': '#111111',
+                        'line-width': 3
+                    }
+                });
+
+                const bounds = new mapboxgl.LngLatBounds();
+                displayFeatures.forEach(feature => extendPosterMapBounds(bounds, feature.geometry));
+                if (!bounds.isEmpty()) {
+                    renderMap.fitBounds(bounds, { padding: renderPadding, duration: 0 });
+                }
+
+                renderMap.resize();
+                await waitForMapboxIdle(renderMap);
+                await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+
+                const snapshot = document.createElement('canvas');
+                snapshot.width = renderWidth;
+                snapshot.height = renderHeight;
+                const snapshotCtx = snapshot.getContext('2d');
+                snapshotCtx.drawImage(renderMap.getCanvas(), 0, 0, renderWidth, renderHeight);
+                return snapshot;
+            } finally {
+                renderMap.remove();
+                host.remove();
+            }
+        }
+
         async function renderPosterMapImage(features, width, height, options = {}) {
             if (Array.isArray(options.lightningStrikes) && options.lightningStrikes.length) {
                 return renderPosterMapVectorFallback(features, width, height, options);
+            }
+            try {
+                return await renderPosterMapWithLiveMapbox(features, width, height);
+            } catch (e) {
+                console.warn('Poster live map render failed, falling back to static overlay.', e);
             }
             const rw = Math.max(320, Math.min(1280, Math.ceil(width / 2)));
             const rh = Math.max(320, Math.min(1280, Math.ceil(height / 2)));
@@ -1953,7 +2206,9 @@
         // ── fallback render caller (replaces old stub) ────────────────────────────
         async function attemptLocalPosterRender(data, geoJSON) {
             try {
-                posterStatus.textContent = 'Generating poster locally…';
+                posterStatus.textContent = data?.posterUrl
+                    ? 'Generating poster locally from the current forecast geometry…'
+                    : 'Generating poster locally…';
 
                 const posterArtifact = await renderDetailForecastPoster(geoJSON, {
                     validFrom:       data.validFrom,
@@ -1966,9 +2221,13 @@
                 const response   = await fetch(posterArtifact.dataUrl);
                 const blob       = await response.blob();
                 const objectUrl  = URL.createObjectURL(blob);
+                revokeCurrentPosterObjectUrl();
+                currentPosterObjectUrl = objectUrl;
 
                 posterPreviewImg.onload = () => {
-                    posterStatus.textContent = 'Poster PNG generated locally for preview (not synced to archive storage).';
+                    posterStatus.textContent = data?.posterUrl
+                        ? 'Poster preview regenerated locally so it matches the current interactive map styling.'
+                        : 'Poster PNG generated locally for preview (not synced to archive storage).';
                     posterPreviewShell.hidden = false;
                 };
                 posterPreviewImg.onerror = () => {
@@ -1984,10 +2243,13 @@
                 posterLinkBtn.target = '_blank';
                 posterLinkBtn.rel    = 'noopener';
                 posterLinkBtn.download = posterArtifact.fileName;
-
-                window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
             } catch (error) {
                 console.error('Local poster render failed.', error);
+                if (data?.posterUrl) {
+                    posterStatus.textContent = 'Could not regenerate the poster locally. Falling back to the archived poster.';
+                    showArchivedPosterPreview(data);
+                    return;
+                }
                 posterStatus.textContent = 'Could not generate the poster PNG locally. Re-publish from Admin to regenerate the archived poster.';
                 posterPreviewShell.hidden = true;
                 posterLinkBtn.hidden = true;

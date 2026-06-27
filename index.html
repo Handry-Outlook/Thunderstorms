@@ -1155,7 +1155,7 @@
             </a>
             <nav class="nav-left" aria-label="Primary">
                 <a href="index.html" class="active">Outlooks <span class="badge" id="outlook-count">0</span></a>
-                <a href="obs.html">Observations</a>
+                <a href="obs.html">Observations <span class="badge" id="outlook-count">Live</span></a>
                 <a href="forecasts.html">Forecasts <span class="badge" id="forecasts-count">0</span></a>
                 <a href="hoco.html">HOCO</a>
                 <a href="archive.html">Archive</a>
@@ -1989,11 +1989,33 @@
             hocoSelectedDayLabel.textContent = getSelectedWindowRangeText(selectedForecastWindow);
         }
 
+        // This page is England-only (HOCO now supports multiple regions e.g. Germany,
+        // Poland, Scotland, but this page has not been upgraded with a region picker).
+        // All runs are fetched from Firestore, then filtered to England-only here
+        // before anything is passed to visibleAutoRuns or the slider.
+
+        // All known non-England HOCO regions. A run is excluded from the England
+        // slider if its `region` field exactly matches one of these (case-insensitive).
+        // Runs with a blank or missing `region` are kept — they are legacy England/UK runs.
+        const NON_ENGLAND_REGIONS = new Set(
+            ['Germany', 'Poland', 'Scotland', 'Wales', 'Ireland', 'France', 'Spain']
+                .map(r => r.toLowerCase())
+        );
+
+        function isEnglandRun(run) {
+            const r = String(run?.region ?? '').trim().toLowerCase();
+            if (!r) return true;                        // blank = legacy England/UK run
+            if (r === 'uk') return true;                // 'UK' always means England
+            if (r.startsWith('england')) return true;   // 'England', 'England South', etc.
+            if (NON_ENGLAND_REGIONS.has(r)) return false; // explicit non-England name
+            return false;                               // unknown region — exclude to be safe
+        }
+
         function getAutoRunsForSelectedWindow() {
             if (!selectedForecastWindow) return [];
-
             return hocoRuns
                 .filter(run => run.type === 'automated')
+                .filter(run => isEnglandRun(run))
                 .filter(run => {
                     const weather = String(run.weather || '').toLowerCase();
                     return !weather || weather.includes('lightning') || weather.includes('thunder');
@@ -2181,14 +2203,14 @@
         }
 
         function initHocoRuns() {
+            // Fetch all runs — region filtering happens in getAutoRunsForSelectedWindow()
+            // before anything is passed to the slider.
             const runsQuery = query(collection(hocoDb, 'hoco_requests'), orderBy('createdAt', 'desc'), limit(180));
 
             onSnapshot(runsQuery, snapshot => {
                 hocoRuns = [];
                 snapshot.forEach(docSnap => {
-                    const data = docSnap.data();
-                    if (data.type !== 'automated') return;
-                    hocoRuns.push({ id: docSnap.id, ...data });
+                    hocoRuns.push({ id: docSnap.id, ...docSnap.data() });
                 });
 
                 refreshGuidanceForSelectedDay();
