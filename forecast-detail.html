@@ -1243,6 +1243,9 @@
         async function fetchUkLightningData() {
             const githubUrl1 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data.json';
             const githubUrl2 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data_2025_autumn.json';
+            const githubUrl3 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new_2026/refs/heads/main/lightning_data_2026_summer_part1.json;
+            const githubUrl4 = 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new_2026/refs/heads/main/lightning_data_2026_summer.json';
+            
             const metOfficeBaseUrl = 'https://data.consumer-digital.api.metoffice.gov.uk/v1/lightning';
 
             const fetchJsonOrNull = async url => {
@@ -1260,10 +1263,12 @@
                 time: new Date(strike.strike_time)
             })) || [];
 
-            const [mainResponse, githubResponse1, githubResponse2] = await Promise.all([
+            const [mainResponse, githubResponse1, githubResponse2 , githubResponse3, githubResponse4] = await Promise.all([
                 fetchJsonOrNull(metOfficeBaseUrl),
                 fetchJsonOrNull(githubUrl1),
-                fetchJsonOrNull(githubUrl2)
+                fetchJsonOrNull(githubUrl2),
+                fetchJsonOrNull(githubUrl3),
+                fetchJsonOrNull(githubUrl4)
             ]);
 
             const baseStrikes = asStrikeList(mainResponse);
@@ -1274,8 +1279,10 @@
 
             const githubStrikes1 = asStrikeList(githubResponse1);
             const githubStrikes2 = asStrikeList(githubResponse2);
+            const githubStrikes3 = asStrikeList(githubResponse3);
+            const githubStrikes4 = asStrikeList(githubResponse4);
             const chunkStrikes = chunkResponses.flatMap(response => asStrikeList(response));
-            const allStrikes = [...githubStrikes1, ...githubStrikes2, ...baseStrikes, ...chunkStrikes];
+            const allStrikes = [...githubStrikes1, ...githubStrikes2, ...githubStrikes3, ...githubStrikes4, ...baseStrikes, ...chunkStrikes];
 
             if (!allStrikes.length) {
                 throw new Error('No data returned from the available UK lightning feeds.');
@@ -1535,6 +1542,8 @@
         const POSTER_UK_LIGHTNING_FEED_URLS = Object.freeze({
             githubPrimary:   'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data.json',
             githubSecondary: 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new/refs/heads/main/lightning_data_2025_autumn.json',
+            github3: 'https://raw.githubusercontent.com/HandryOutlook/lightning_data_new_2026/refs/heads/main/lightning_data_2026_summer_part1.json',
+            github4: 'hhttps://raw.githubusercontent.com/HandryOutlook/lightning_data_new_2026/refs/heads/main/lightning_data_2026_summer.json',
             metOfficeBase:   'https://data.consumer-digital.api.metoffice.gov.uk/v1/lightning'
         });
         const HANDRY_LOGO_SRC      = 'assets/handry-outlook-logo.png';
@@ -1775,7 +1784,9 @@
             const [main, gh1, gh2] = await Promise.all([
                 fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.metOfficeBase),
                 fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.githubPrimary),
-                fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.githubSecondary)
+                fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.githubSecondary),
+                fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.github3),
+                fetchJsonOrNull(POSTER_UK_LIGHTNING_FEED_URLS.github4)
             ]);
             const chunkUrls  = (main?.chunks || []).map(c => `${POSTER_UK_LIGHTNING_FEED_URLS.metOfficeBase}?last-minutes=1&chunk=${c.chunk}`);
             const chunks     = await Promise.all(chunkUrls.map(fetchJsonOrNull));
