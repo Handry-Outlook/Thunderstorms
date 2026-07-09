@@ -1828,6 +1828,9 @@
                     id: 'gl-draw-polygon-fill-active',
                     type: 'fill',
                     filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+                    layout: {
+                        'fill-sort-key': ['case', ['to-boolean', ['get', 'user_user_severe']], 999, ['to-number', ['coalesce', ['get', 'user_user_rank'], 0]]]
+                    },
                     paint: {
                         'fill-color': ['coalesce', ['get', 'user_user_color'], '#94a3b8'],
                         'fill-opacity': 0
@@ -1837,6 +1840,9 @@
                     id: 'gl-draw-polygon-fill-static',
                     type: 'fill',
                     filter: ['all', ['==', '$type', 'Polygon'], ['==', 'mode', 'static']],
+                    layout: {
+                        'fill-sort-key': ['case', ['to-boolean', ['get', 'user_user_severe']], 999, ['to-number', ['coalesce', ['get', 'user_user_rank'], 0]]]
+                    },
                     paint: {
                         'fill-color': ['coalesce', ['get', 'user_user_color'], '#94a3b8'],
                         'fill-opacity': 0
@@ -1852,6 +1858,9 @@
                     id: 'gl-draw-polygon-stroke-active',
                     type: 'line',
                     filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+                    layout: {
+                        'line-sort-key': ['case', ['to-boolean', ['get', 'user_user_severe']], 999, ['to-number', ['coalesce', ['get', 'user_user_rank'], 0]]]
+                    },
                     paint: {
                         'line-color': ['coalesce', ['get', 'user_user_color'], '#94a3b8'],
                         'line-width': 3
@@ -1861,6 +1870,9 @@
                     id: 'gl-draw-polygon-stroke-static',
                     type: 'line',
                     filter: ['all', ['==', '$type', 'Polygon'], ['==', 'mode', 'static']],
+                    layout: {
+                        'line-sort-key': ['case', ['to-boolean', ['get', 'user_user_severe']], 999, ['to-number', ['coalesce', ['get', 'user_user_rank'], 0]]]
+                    },
                     paint: {
                         'line-color': ['coalesce', ['get', 'user_user_color'], '#94a3b8'],
                         'line-width': 2.5
@@ -1966,6 +1978,25 @@
                 title: meta.title || meta.label,
                 description: meta.description || 'Thunderstorm outlook information.'
             };
+        }
+
+        // Keep polygon stacking deterministic everywhere: lower risks are drawn first,
+        // higher risks are drawn later/on top. SEVERE outline polygons are treated as
+        // an overlay and are always placed last so the black outline remains visible.
+        function getRiskStackWeight(feature) {
+            const state = getOutlookFeatureState(feature);
+            if (state.severe) return 999;
+            const rank = Number(state.rank);
+            return Number.isFinite(rank) ? rank : 0;
+        }
+        function sortFeaturesForRiskStack(features) {
+            return (features || [])
+                .map((feature, index) => ({ feature, index, weight: getRiskStackWeight(feature) }))
+                .sort((a, b) => {
+                    if (a.weight !== b.weight) return a.weight - b.weight;
+                    return a.index - b.index;
+                })
+                .map(entry => entry.feature);
         }
 
         function getForecasterName() {
@@ -2870,30 +2901,32 @@
                     };
                 });
 
-            return window.GenWeatherUtils
+            const displayFeatures = window.GenWeatherUtils
                 ? window.GenWeatherUtils.normalizeDisplayFeatures(rawFeatures)
                 : rawFeatures;
+            return sortFeaturesForRiskStack(displayFeatures);
         }
 
         function createDraftGeoJSON() {
+            const draftFeatures = draw.getAll().features
+                .filter(feature => feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon'))
+                .map(feature => {
+                    const state = getOutlookFeatureState(feature);
+                    return {
+                        type: 'Feature',
+                        geometry: feature.geometry,
+                        properties: {
+                            risk: state.risk,
+                            color: state.color,
+                            rank: state.rank,
+                            severe: state.severe,
+                            isSevere: state.severe
+                        }
+                    };
+                });
             return {
                 type: 'FeatureCollection',
-                features: draw.getAll().features
-                    .filter(feature => feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon'))
-                    .map(feature => {
-                        const state = getOutlookFeatureState(feature);
-                        return {
-                            type: 'Feature',
-                            geometry: feature.geometry,
-                            properties: {
-                                risk: state.risk,
-                                color: state.color,
-                                rank: state.rank,
-                                severe: state.severe,
-                                isSevere: state.severe
-                            }
-                        };
-                    })
+                features: sortFeaturesForRiskStack(draftFeatures)
             };
         }
 
@@ -2974,7 +3007,7 @@
 
             draw.deleteAll();
             const geoJSON = typeof snapshot.geoJSON === 'string' ? JSON.parse(snapshot.geoJSON) : snapshot.geoJSON;
-            (geoJSON?.features || []).forEach(feature => {
+            sortFeaturesForRiskStack(geoJSON?.features || []).forEach(feature => {
                 const state = getOutlookFeatureState(feature);
                 draw.add({
                     type: 'Feature',
@@ -3061,6 +3094,9 @@
                 type: 'fill',
                 source: PREVIEW_SOURCE_ID,
                 filter: ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                layout: {
+                    'fill-sort-key': ['case', ['to-boolean', ['get', 'isSevere']], 999, ['to-number', ['coalesce', ['get', 'rank'], 0]]]
+                },
                 paint: {
                     'fill-color': ['get', 'color'],
                     'fill-opacity': 0.42
@@ -3072,6 +3108,9 @@
                 type: 'line',
                 source: PREVIEW_SOURCE_ID,
                 filter: ['!=', ['coalesce', ['get', 'isSevere'], false], true],
+                layout: {
+                    'line-sort-key': ['case', ['to-boolean', ['get', 'isSevere']], 999, ['to-number', ['coalesce', ['get', 'rank'], 0]]]
+                },
                 paint: {
                     'line-color': ['get', 'color'],
                     'line-width': 2.5
@@ -3083,6 +3122,9 @@
                 type: 'line',
                 source: PREVIEW_SOURCE_ID,
                 filter: ['==', ['coalesce', ['get', 'isSevere'], false], true],
+                layout: {
+                    'line-sort-key': ['case', ['to-boolean', ['get', 'isSevere']], 999, ['to-number', ['coalesce', ['get', 'rank'], 0]]]
+                },
                 paint: {
                     'line-color': '#111111',
                     'line-width': 3.3
@@ -3377,7 +3419,7 @@
 
             draw.deleteAll();
             const geoJSON = typeof data.geoJSON === 'string' ? JSON.parse(data.geoJSON) : data.geoJSON;
-            geoJSON.features.forEach(feature => {
+            sortFeaturesForRiskStack(geoJSON.features).forEach(feature => {
                 const state = getOutlookFeatureState(feature);
                 draw.add({
                     type: 'Feature',
@@ -3647,7 +3689,7 @@
                 forecastText.value = '';
                 draw.deleteAll();
 
-                entry.features.forEach(feature => {
+                sortFeaturesForRiskStack(entry.features).forEach(feature => {
                     const state = getOutlookFeatureState(feature);
                     draw.add({
                         type: 'Feature',
